@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "prisma generate",
     "build": "node scripts/build-next.mjs",
     "start": "next start",
     "db:generate": "prisma generate",
