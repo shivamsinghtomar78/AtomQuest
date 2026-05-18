@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { EmptyState, PortalCard, SkeletonBlock, StatusBadge } from "@/components/portal/portal-ui";
+import { apiJson } from "@/lib/api/client";
 
 type UserRow = {
   id: string;
@@ -15,12 +16,8 @@ type UserRow = {
 };
 
 async function fetchUsers() {
-  const response = await fetch("/api/admin/users?limit=100");
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load users");
-  }
-  return (payload.data?.items ?? []) as UserRow[];
+  const payload = await apiJson<{ items: UserRow[] }>("/api/admin/users?limit=100");
+  return payload.items ?? [];
 }
 
 function initials(name: string) {

@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, Save } from "lucide-react";
 import { computeProgressScore } from "@/lib/scoring";
 import { quarters, type Quarter, type UpdateStatus } from "@/lib/portal-data";
 import { Button } from "@/components/ui/button";
-import { EmptyState, PortalCard, ScoreChip, SkeletonBlock, StatusBadge } from "@/components/portal/portal-ui";
+import { EmptyState, InlineValidation, PortalCard, ScoreChip, SkeletonBlock, StatusBadge } from "@/components/portal/portal-ui";
+import { apiJson, jsonRequest } from "@/lib/api/client";
 
 type Goal = {
   id: string;
@@ -32,16 +34,18 @@ type Goal = {
 type GoalSheet = {
   id: string;
   status: "draft" | "submitted" | "returned" | "approved" | "locked";
+  cycle: {
+    q1Opens: string;
+    q2Opens: string;
+    q3Opens: string;
+    q4Opens: string;
+  };
   goals: Goal[];
 };
 
 async function fetchMySheet() {
-  const response = await fetch("/api/goal-sheets");
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load goals");
-  }
-  return (payload.data?.items?.[0] ?? null) as GoalSheet | null;
+  const payload = await apiJson<{ items: GoalSheet[] }>("/api/goal-sheets");
+  return payload.items?.[0] ?? null;
 }
 
 function numberValue(value: string | number | null | undefined) {
@@ -67,12 +71,27 @@ function targetLabel(goal: Goal) {
   return goal.targetValue?.toString() ?? "No target";
 }
 
+function currentQuarter(cycle?: GoalSheet["cycle"]): Quarter {
+  if (!cycle) return "Q2";
+  const today = new Date();
+  if (today >= new Date(cycle.q4Opens)) return "Q4";
+  if (today >= new Date(cycle.q3Opens)) return "Q3";
+  if (today >= new Date(cycle.q2Opens)) return "Q2";
+  return "Q1";
+}
+
 export function CheckinsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const sheetQuery = useQuery({ queryKey: ["goal-sheets", "mine"], queryFn: fetchMySheet });
   const goals = sheetQuery.data?.goals ?? [];
-  const [activeGoalIndex, setActiveGoalIndex] = useState(0);
-  const [quarter, setQuarter] = useState<Quarter>("Q2");
+  const selectedGoalId = searchParams.get("goal");
+  const selectedGoalIndex = goals.findIndex((goal) => goal.id === selectedGoalId);
+  const activeGoalIndex = selectedGoalIndex >= 0 ? selectedGoalIndex : 0;
+  const quarterParam = searchParams.get("quarter");
+  const quarter: Quarter = quarters.includes(quarterParam as Quarter) ? (quarterParam as Quarter) : currentQuarter(sheetQuery.data?.cycle);
   const [actualValue, setActualValue] = useState("");
   const [actualDate, setActualDate] = useState("");
   const [zeroActual, setZeroActual] = useState(true);
@@ -83,17 +102,18 @@ export function CheckinsPage() {
   const existingUpdate = activeGoal?.quarterlyUpdates.find((update) => update.quarter === quarter);
 
   useEffect(() => {
-    if (!existingUpdate) return;
-    setActualValue(existingUpdate.actualValue?.toString() ?? "");
-    setActualDate(existingUpdate.actualDate?.slice(0, 10) ?? "");
-    setZeroActual(existingUpdate.actualZero ?? true);
-    setStatus(existingUpdate.status);
-    setEmployeeNotes(existingUpdate.employeeNotes ?? "");
-  }, [existingUpdate]);
+    setActualValue(existingUpdate?.actualValue?.toString() ?? "");
+    setActualDate(existingUpdate?.actualDate?.slice(0, 10) ?? "");
+    setZeroActual(existingUpdate?.actualZero ?? true);
+    setStatus(existingUpdate?.status ?? "on_track");
+    setEmployeeNotes(existingUpdate?.employeeNotes ?? "");
+  }, [activeGoal?.id, existingUpdate, quarter]);
 
   const score = useMemo(() => {
     if (!activeGoal) return null;
+    if (status === "not_started") return null;
     if (activeGoal.uomType === "timeline") {
+      if (!actualDate) return null;
       return computeProgressScore({
         uomType: "timeline",
         targetDate: activeGoal.targetDate,
@@ -106,33 +126,43 @@ export function CheckinsPage() {
         actualValue: zeroActual ? 0 : 1,
       });
     }
+    if (!actualValue.trim() || !Number.isFinite(Number(actualValue))) return null;
     return computeProgressScore({
       uomType: activeGoal.uomType,
       targetValue: activeGoal.targetValue,
       actualValue: Number(actualValue),
     });
-  }, [activeGoal, actualDate, actualValue, zeroActual]);
+  }, [activeGoal, actualDate, actualValue, status, zeroActual]);
+
+  const actualError = useMemo(() => {
+    if (!activeGoal || status === "not_started") return null;
+    if (activeGoal.uomType === "timeline" && !actualDate) return "Enter the actual completion date.";
+    if (!["timeline", "zero"].includes(activeGoal.uomType)) {
+      if (!actualValue.trim()) return "Enter an actual value.";
+      if (!Number.isFinite(Number(actualValue))) return "Actual value must be a valid number.";
+    }
+    return null;
+  }, [activeGoal, actualDate, actualValue, status]);
+
+  function setSelection(next: { goalIndex?: number; quarter?: Quarter }) {
+    const params = new URLSearchParams(searchParams);
+    const goal = goals[next.goalIndex ?? activeGoalIndex];
+    if (goal) params.set("goal", goal.id);
+    if (next.quarter) params.set("quarter", next.quarter);
+    router.push(`${pathname}?${params.toString()}`);
+  }
 
   const saveUpdate = useMutation({
     mutationFn: async () => {
-      const response = await fetch("/api/quarterly-updates", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      return apiJson("/api/quarterly-updates", jsonRequest("POST", {
           goal_id: activeGoal.id,
           quarter,
-          actual_value: activeGoal.uomType === "timeline" || activeGoal.uomType === "zero" ? null : Number(actualValue),
-          actual_date: activeGoal.uomType === "timeline" ? actualDate : null,
-          actual_zero: activeGoal.uomType === "zero" ? zeroActual : null,
+          actual_value: status === "not_started" || activeGoal.uomType === "timeline" || activeGoal.uomType === "zero" ? null : Number(actualValue),
+          actual_date: status === "not_started" ? null : activeGoal.uomType === "timeline" ? actualDate : null,
+          actual_zero: status === "not_started" ? null : activeGoal.uomType === "zero" ? zeroActual : null,
           status,
           employee_notes: employeeNotes,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok || payload.success === false) {
-        throw new Error(payload.message ?? "Unable to save update");
-      }
-      return payload.data;
+        }));
     },
     onSuccess: () => {
       toast.success(`${quarter} achievement saved`);
@@ -173,9 +203,9 @@ export function CheckinsPage() {
 
       <div className="quarter-tabs">
         {quarters.map((item) => (
-          <button className={quarter === item ? "is-active" : ""} key={item} onClick={() => setQuarter(item)} type="button">
+          <button className={quarter === item ? "is-active" : ""} key={item} onClick={() => setSelection({ quarter: item })} type="button">
             {item}
-            <span>{existingUpdate && item === quarter ? "Saved" : "Open"}</span>
+            <span>{activeGoal?.quarterlyUpdates.some((update) => update.quarter === item) ? "Saved" : "Open"}</span>
           </button>
         ))}
       </div>
@@ -205,7 +235,7 @@ export function CheckinsPage() {
           <div className="goal-nav">
             <Button
               disabled={activeGoalIndex === 0}
-              onClick={() => setActiveGoalIndex((index) => Math.max(0, index - 1))}
+              onClick={() => setSelection({ goalIndex: Math.max(0, activeGoalIndex - 1) })}
               type="button"
               variant="secondary"
             >
@@ -214,7 +244,7 @@ export function CheckinsPage() {
             </Button>
             <Button
               disabled={activeGoalIndex === goals.length - 1}
-              onClick={() => setActiveGoalIndex((index) => Math.min(goals.length - 1, index + 1))}
+              onClick={() => setSelection({ goalIndex: Math.min(goals.length - 1, activeGoalIndex + 1) })}
               type="button"
               variant="secondary"
             >
@@ -268,8 +298,9 @@ export function CheckinsPage() {
             <span>Live score preview</span>
             <ScoreChip score={score === null ? null : Math.round(score)} />
           </div>
+          {actualError ? <InlineValidation tone="danger">{actualError}</InlineValidation> : null}
 
-          <Button disabled={saveUpdate.isPending} onClick={() => saveUpdate.mutate()} type="button">
+          <Button disabled={Boolean(actualError) || saveUpdate.isPending} onClick={() => saveUpdate.mutate()} type="button">
             <Save size={16} />
             {saveUpdate.isPending ? "Saving..." : "Save Update"}
           </Button>

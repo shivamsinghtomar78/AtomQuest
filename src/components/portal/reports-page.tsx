@@ -2,12 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { utils, writeFile } from "xlsx";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { PortalCard, ScoreChip, SkeletonBlock } from "@/components/portal/portal-ui";
+import { DataToolbar, EmptyState, PortalCard, ScoreChip, SkeletonBlock } from "@/components/portal/portal-ui";
+import { apiJson, buildQuery } from "@/lib/api/client";
 
 const reportTabs = ["Achievement Report", "Completion Dashboard", "Goal Distribution"];
 
@@ -19,11 +21,16 @@ type AchievementRow = {
   thrust_area: string;
   uom_type: string;
   target: string;
+  q1_actual: string;
+  q2_actual: string;
+  q3_actual: string;
+  q4_actual: string;
   q1_score: string;
   q2_score: string;
   q3_score: string;
   q4_score: string;
   weightage: string;
+  weighted_score: string | number;
 };
 
 type CompletionData = {
@@ -36,22 +43,21 @@ type CompletionData = {
   department_breakdown: Array<{ department: string; completion_percent: number; at_risk_goals: number }>;
 };
 
-async function fetchAchievement() {
-  const response = await fetch("/api/reports/achievement");
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load achievement report");
-  }
-  return (payload.data?.rows ?? []) as AchievementRow[];
+async function fetchAchievement(params: { quarter?: string; department?: string; cycleId?: string }) {
+  const payload = await apiJson<{ rows: AchievementRow[] }>(
+    `/api/reports/achievement${buildQuery({
+      quarter: params.quarter,
+      department: params.department,
+      cycle_id: params.cycleId,
+    })}`
+  );
+  return payload.rows ?? [];
 }
 
-async function fetchCompletion() {
-  const response = await fetch("/api/reports/completion-dashboard");
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load completion dashboard");
-  }
-  return payload.data as CompletionData;
+async function fetchCompletion(params: { cycleId?: string }) {
+  return apiJson<CompletionData>(
+    `/api/reports/completion-dashboard${buildQuery({ cycle_id: params.cycleId })}`
+  );
 }
 
 function numericScore(value: string | number | null | undefined) {
@@ -61,14 +67,47 @@ function numericScore(value: string | number | null | undefined) {
 }
 
 export function ReportsPage() {
-  const [activeTab, setActiveTab] = useState(reportTabs[0]);
-  const achievementQuery = useQuery({ queryKey: ["reports", "achievement"], queryFn: fetchAchievement });
-  const completionQuery = useQuery({ queryKey: ["reports", "completion"], queryFn: fetchCompletion });
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState(reportTabs.includes(tabParam ?? "") ? tabParam! : reportTabs[0]);
+  const quarter = searchParams.get("quarter") ?? "";
+  const department = searchParams.get("department") ?? "";
+  const cycleId = searchParams.get("cycle_id") ?? "";
+  const achievementQuery = useQuery({
+    queryKey: ["reports", "achievement", quarter, department, cycleId],
+    queryFn: () => fetchAchievement({ quarter, department, cycleId }),
+  });
+  const completionQuery = useQuery({
+    queryKey: ["reports", "completion", cycleId],
+    queryFn: () => fetchCompletion({ cycleId }),
+  });
   const achievementRows = achievementQuery.data ?? [];
   const completion = completionQuery.data;
+  const departments = Array.from(new Set(achievementRows.map((row) => row.department).filter(Boolean)));
+
+  function setQuery(next: Record<string, string>) {
+    const params = new URLSearchParams(searchParams);
+    Object.entries(next).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    });
+    router.push(params.size ? `${pathname}?${params.toString()}` : pathname);
+  }
+
+  function selectTab(tab: string) {
+    setActiveTab(tab);
+    setQuery({ tab });
+  }
 
   function exportCsv() {
-    window.location.href = "/api/reports/achievement?format=csv";
+    window.location.href = `/api/reports/achievement${buildQuery({
+      quarter,
+      department,
+      cycle_id: cycleId,
+      format: "csv",
+    })}`;
     toast.success("CSV export prepared.");
   }
 
@@ -116,7 +155,7 @@ export function ReportsPage() {
 
       <div className="portal-tabs" role="tablist">
         {reportTabs.map((tab) => (
-          <button className={activeTab === tab ? "is-active" : ""} key={tab} onClick={() => setActiveTab(tab)} type="button">
+          <button className={activeTab === tab ? "is-active" : ""} key={tab} onClick={() => selectTab(tab)} type="button">
             {tab}
           </button>
         ))}
@@ -124,42 +163,77 @@ export function ReportsPage() {
 
       {activeTab === "Achievement Report" ? (
         <>
-          <div className="filter-bar">
-            <select><option>FY 2025-26</option></select>
-            <select><option>All quarters</option><option>Q1</option><option>Q2</option></select>
-            <select><option>All departments</option></select>
+          <DataToolbar>
+            <select aria-label="Cycle" value={cycleId} onChange={(event) => setQuery({ cycle_id: event.target.value })}>
+              <option value="">Active cycle</option>
+            </select>
+            <select aria-label="Quarter" value={quarter} onChange={(event) => setQuery({ quarter: event.target.value })}>
+              <option value="">All quarters</option>
+              <option value="Q1">Q1</option>
+              <option value="Q2">Q2</option>
+              <option value="Q3">Q3</option>
+              <option value="Q4">Q4</option>
+            </select>
+            <select aria-label="Department" value={department} onChange={(event) => setQuery({ department: event.target.value })}>
+              <option value="">All departments</option>
+              {departments.map((item) => (
+                <option key={item} value={item ?? ""}>{item}</option>
+              ))}
+            </select>
             <Button onClick={exportCsv} variant="secondary"><Download size={16} />Export CSV</Button>
             <Button disabled={!achievementRows.length} onClick={exportExcel}><Download size={16} />Export Excel</Button>
-          </div>
+          </DataToolbar>
           {achievementQuery.isLoading ? <SkeletonBlock /> : (
-            <div className="portal-table-wrap">
+            achievementRows.length ? (
+              <div className="portal-table-wrap">
               <table className="portal-table">
                 <thead>
                   <tr>
                     <th>Employee</th>
+                    <th>Code</th>
                     <th>Department</th>
                     <th>Goal Title</th>
+                    <th>UoM</th>
                     <th>Target</th>
+                    <th>Q1 Actual</th>
                     <th>Q1 Score</th>
+                    <th>Q2 Actual</th>
                     <th>Q2 Score</th>
+                    <th>Q3 Actual</th>
+                    <th>Q3 Score</th>
+                    <th>Q4 Actual</th>
+                    <th>Q4 Score</th>
                     <th>Weightage</th>
+                    <th>Weighted Score</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {achievementRows.slice(0, 20).map((row) => (
+                  {achievementRows.map((row) => (
                     <tr key={`${row.employee_name}-${row.goal_title}`}>
                       <td>{row.employee_name}</td>
+                      <td>{row.employee_code}</td>
                       <td>{row.department}</td>
                       <td><strong>{row.goal_title}</strong><small>{row.thrust_area}</small></td>
+                      <td>{row.uom_type}</td>
                       <td>{row.target}</td>
+                      <td>{row.q1_actual}</td>
                       <td><ScoreChip score={numericScore(row.q1_score)} /></td>
+                      <td>{row.q2_actual}</td>
                       <td><ScoreChip score={numericScore(row.q2_score)} /></td>
+                      <td>{row.q3_actual}</td>
+                      <td><ScoreChip score={numericScore(row.q3_score)} /></td>
+                      <td>{row.q4_actual}</td>
+                      <td><ScoreChip score={numericScore(row.q4_score)} /></td>
                       <td>{row.weightage}%</td>
+                      <td>{row.weighted_score}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            ) : (
+              <EmptyState title="No report rows" description="Adjust the report filters or add goal/check-in data first." />
+            )
           )}
         </>
       ) : null}

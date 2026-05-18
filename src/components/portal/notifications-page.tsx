@@ -1,43 +1,49 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { Bell, CheckCheck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState, SkeletonBlock } from "@/components/portal/portal-ui";
 import { cn } from "@/lib/utils";
+import { apiJson } from "@/lib/api/client";
+import type { PortalSession } from "@/lib/auth-types";
 
 type NotificationItem = {
   id: string;
   title: string;
   body: string | null;
   type: string;
+  entityType: string | null;
+  entityId: string | null;
   isRead: boolean;
   createdAt: string;
 };
 
 async function fetchNotifications() {
-  const response = await fetch("/api/notifications");
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load notifications");
-  }
-  return (payload.data ?? []) as NotificationItem[];
+  return apiJson<NotificationItem[]>("/api/notifications");
 }
 
-export function NotificationsPage() {
+function notificationHref(item: NotificationItem, role: PortalSession["user"]["role"]) {
+  if (!item.entityId) return "/notifications";
+  if (item.entityType === "goal_sheet") {
+    if (role === "employee") return item.type.includes("checkin") ? "/checkins" : "/goals";
+    return item.type.includes("checkin")
+      ? `/manager-checkins/${item.entityId}`
+      : `/team-goals/${item.entityId}/review`;
+  }
+  if (item.entityType === "goal") return "/goals";
+  return "/notifications";
+}
+
+export function NotificationsPage({ session }: { session: PortalSession | null }) {
+  const router = useRouter();
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["notifications", "page"], queryFn: fetchNotifications });
   const notifications = query.data ?? [];
   const markAllRead = useMutation({
-    mutationFn: async () => {
-      const response = await fetch("/api/notifications/read-all", { method: "PATCH" });
-      const payload = await response.json();
-      if (!response.ok || payload.success === false) {
-        throw new Error(payload.message ?? "Unable to mark notifications read");
-      }
-      return payload.data;
-    },
+    mutationFn: () => apiJson<{ count: number }>("/api/notifications/read-all", { method: "PATCH" }),
     onMutate: async () => {
       await queryClient.cancelQueries({ queryKey: ["notifications", "page"] });
       const previous = queryClient.getQueryData<NotificationItem[]>(["notifications", "page"]);
@@ -54,6 +60,18 @@ export function NotificationsPage() {
       toast.success("All notifications marked read");
       queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
     },
+  });
+  const openNotification = useMutation({
+    mutationFn: async (item: NotificationItem) => {
+      await apiJson(`/api/notifications/${item.id}/read`, { method: "PATCH" });
+      return item;
+    },
+    onSuccess: (item) => {
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
+      router.push(notificationHref(item, session?.user.role ?? "employee"));
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to open notification"),
   });
 
   return (
@@ -82,7 +100,9 @@ export function NotificationsPage() {
                 <p>{item.body}</p>
                 <span>{new Date(item.createdAt).toLocaleString()}</span>
               </div>
-              <button onClick={() => toast.info("Notification opened.")} type="button">Open</button>
+              <button onClick={() => openNotification.mutate(item)} type="button">
+                {item.isRead ? "Open" : "Mark & open"}
+              </button>
             </article>
           ))}
         </div>

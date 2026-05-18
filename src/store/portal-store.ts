@@ -15,7 +15,9 @@ type PortalState = {
 export const usePortalStore = create<PortalState>((set) => ({
   sidebarOpen: false,
   notificationOpen: false,
-  darkMode: false,
+  darkMode:
+    typeof window !== "undefined" &&
+    window.localStorage.getItem("atomquest-theme") === "dark",
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
   setNotificationOpen: (notificationOpen) => set({ notificationOpen }),

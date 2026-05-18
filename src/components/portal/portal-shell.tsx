@@ -33,6 +33,7 @@ import { usePortalStore } from "@/store/portal-store";
 import { cn } from "@/lib/utils";
 import { getFirebaseClient } from "@/lib/firebase/client";
 import type { PortalSession } from "@/lib/auth-types";
+import { apiJson } from "@/lib/api/client";
 
 type NavItem = {
   href: string;
@@ -128,10 +129,48 @@ function BreadcrumbTrail({ items }: { items: BreadcrumbItem[] }) {
 }
 
 async function fetchUnreadCount() {
-  const response = await fetch("/api/notifications/unread-count");
-  if (!response.ok) throw new Error("Unable to load unread count");
-  const payload = (await response.json()) as { data?: { count?: number } };
-  return payload.data?.count ?? 0;
+  const payload = await apiJson<{ count?: number }>("/api/notifications/unread-count");
+  return payload.count ?? 0;
+}
+
+type ActiveCycle = {
+  id: string;
+  name: string;
+  goalSettingOpens: string;
+  q1Opens: string;
+  q2Opens: string;
+  q3Opens: string;
+  q4Opens: string;
+};
+
+function activeWindowLabel(cycle?: ActiveCycle) {
+  if (!cycle) return "Active cycle loading";
+
+  const now = new Date();
+  const windows = [
+    { label: "Goal Setting", opens: cycle.goalSettingOpens },
+    { label: "Q1 Check-in", opens: cycle.q1Opens },
+    { label: "Q2 Check-in", opens: cycle.q2Opens },
+    { label: "Q3 Check-in", opens: cycle.q3Opens },
+    { label: "Q4 Check-in", opens: cycle.q4Opens },
+  ]
+    .map((item) => ({ ...item, date: new Date(item.opens) }))
+    .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+  const current = [...windows].reverse().find((item) => now >= item.date) ?? windows[0];
+  return `${cycle.name} / ${current.label}`;
+}
+
+function notificationHref(item: NotificationRecord, role: PortalRole) {
+  if (!item.entityId) return "/notifications";
+  if (item.entityType === "goal_sheet") {
+    if (role === "employee") return item.type.includes("checkin") ? "/checkins" : "/goals";
+    return item.type.includes("checkin")
+      ? `/manager-checkins/${item.entityId}`
+      : `/team-goals/${item.entityId}/review`;
+  }
+  if (item.entityType === "goal") return "/goals";
+  return "/notifications";
 }
 
 async function signOutEverywhere() {
@@ -183,6 +222,11 @@ function PortalShellContent({
     refetchInterval: 60_000,
     initialData: 0,
   });
+  const cycleQuery = useQuery({
+    queryKey: ["cycles", "active"],
+    queryFn: () => apiJson<ActiveCycle>("/api/cycles/active"),
+    staleTime: 5 * 60_000,
+  });
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -222,7 +266,7 @@ function PortalShellContent({
           <Link className="portal-logo" href="/dashboard">
             <span>Atom</span>Quest
           </Link>
-          <span className="cycle-badge">FY 2025-26</span>
+          <span className="cycle-badge">{cycleQuery.data?.name ?? "Active cycle"}</span>
           <button aria-label="Close menu" className="sidebar-close" onClick={() => setSidebarOpen(false)} type="button">
             <PanelLeftClose size={18} />
           </button>
@@ -310,7 +354,7 @@ function PortalShellContent({
             </div>
             <span className="active-cycle-chip">
               <ShieldCheck size={15} />
-              FY 2025-26 / Goal Setting Open
+              {activeWindowLabel(cycleQuery.data)}
             </span>
             <button className="notification-button" onClick={() => setNotificationOpen(true)} type="button">
               <Bell size={18} />
@@ -333,18 +377,27 @@ function PortalShellContent({
         <main className="portal-content">{children}</main>
       </div>
 
-      <NotificationDrawer open={notificationOpen} onClose={() => setNotificationOpen(false)} />
+      <NotificationDrawer open={notificationOpen} onClose={() => setNotificationOpen(false)} role={user.role} />
       <Toaster richColors position="top-right" />
     </div>
   );
 }
 
-function NotificationDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+function NotificationDrawer({
+  open,
+  onClose,
+  role,
+}: {
+  open: boolean;
+  onClose: () => void;
+  role: PortalRole;
+}) {
   const queryClient = useQueryClient();
 
   async function markAllRead() {
-    const response = await fetch("/api/notifications/read-all", { method: "PATCH" });
-    if (!response.ok) {
+    try {
+      await apiJson<{ count: number }>("/api/notifications/read-all", { method: "PATCH" });
+    } catch {
       toast.error("Unable to mark notifications read");
       return;
     }
@@ -375,7 +428,7 @@ function NotificationDrawer({ open, onClose }: { open: boolean; onClose: () => v
           Mark all read
         </button>
         <div className="notification-list">
-          <NotificationDrawerList />
+          <NotificationDrawerList onClose={onClose} role={role} />
         </div>
       </aside>
     </>
@@ -387,23 +440,32 @@ type NotificationRecord = {
   title: string;
   body: string | null;
   type: string;
+  entityType: string | null;
+  entityId: string | null;
   isRead: boolean;
   createdAt: string;
 };
 
 async function fetchNotifications() {
-  const response = await fetch("/api/notifications");
-  if (!response.ok) throw new Error("Unable to load notifications");
-  const payload = (await response.json()) as { data?: NotificationRecord[] };
-  return payload.data ?? [];
+  return apiJson<NotificationRecord[]>("/api/notifications");
 }
 
-function NotificationDrawerList() {
+function NotificationDrawerList({ onClose, role }: { onClose: () => void; role: PortalRole }) {
+  const router = useRouter();
+  const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ["notifications", "drawer"],
     queryFn: fetchNotifications,
     initialData: [],
   });
+
+  async function openNotification(item: NotificationRecord) {
+    await apiJson(`/api/notifications/${item.id}/read`, { method: "PATCH" }).catch(() => undefined);
+    queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
+    onClose();
+    router.push(notificationHref(item, role));
+  }
 
   if (!query.data.length) {
     return (
@@ -420,14 +482,19 @@ function NotificationDrawerList() {
   return (
     <>
       {query.data.map((item) => (
-        <article className={cn("notification-item", !item.isRead && "is-unread")} key={item.id}>
+        <button
+          className={cn("notification-item", !item.isRead && "is-unread")}
+          key={item.id}
+          onClick={() => openNotification(item)}
+          type="button"
+        >
           <div className={`notification-dot notification-${item.type}`} />
           <div>
             <strong>{item.title}</strong>
             <p>{item.body}</p>
             <span>{new Date(item.createdAt).toLocaleString()}</span>
           </div>
-        </article>
+        </button>
       ))}
     </>
   );

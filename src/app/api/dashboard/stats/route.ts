@@ -85,6 +85,8 @@ export async function GET() {
       const scores = goals.map(latestScore).filter((score): score is number => score !== null);
 
       return ok({
+        activeCycleName: cycle.name,
+        activeWindowLabel: `${quarter} check-in`,
         mySheet: {
           status: sheet?.status ?? "draft",
           goalCount: goals.length,
@@ -137,6 +139,8 @@ export async function GET() {
 
     if (session.user.role === "manager") {
       return ok({
+        activeCycleName: cycle.name,
+        activeWindowLabel: `${quarter} check-in`,
         teamSize: employees.length,
         sheetsApproved: sheets.filter((sheet) => ["approved", "locked"].includes(sheet.status)).length,
         sheetsSubmitted: sheets.filter((sheet) => sheet.status === "submitted").length,
@@ -178,6 +182,8 @@ export async function GET() {
     ]);
 
     return ok({
+      activeCycleName: cycle.name,
+      activeWindowLabel: `${quarter} check-in`,
       totalEmployees: employees.length,
       totalManagers: managers,
       orgCheckInCompletion: Object.fromEntries(

@@ -2,15 +2,25 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { toast } from "sonner";
 import { CalendarClock, Lock, Plus, Save, Share2, SlidersHorizontal, Target, Trash2, X } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { EmptyState, PortalCard, ProgressBar, SkeletonBlock, StatusBadge } from "@/components/portal/portal-ui";
+import {
+  ConfirmDialog,
+  EmptyState,
+  InlineValidation,
+  PageHeader,
+  PortalCard,
+  ProgressBar,
+  SkeletonBlock,
+  StatusBadge,
+} from "@/components/portal/portal-ui";
 import { cn } from "@/lib/utils";
+import { apiJson, jsonRequest } from "@/lib/api/client";
 
 type SheetStatus = "draft" | "submitted" | "returned" | "approved" | "locked";
 type UomType = "min_numeric" | "min_percent" | "max_numeric" | "max_percent" | "timeline" | "zero";
@@ -72,15 +82,6 @@ const tabs = [
   { label: "Shared", value: "shared" },
 ];
 
-async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload?.success === false) {
-    throw new Error(payload?.message ?? payload?.error ?? "Request failed");
-  }
-  return payload.data as T;
-}
-
 async function fetchMySheet() {
   const data = await apiJson<{ items: GoalSheet[] }>("/api/goal-sheets");
   return data.items[0] ?? null;
@@ -119,8 +120,11 @@ export function GoalsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const [goalPendingDelete, setGoalPendingDelete] = useState<Goal | null>(null);
   const activeTab = searchParams.get("tab") ?? "all";
-  const modalOpen = searchParams.get("modal") === "add-goal";
+  const modalMode = searchParams.get("modal");
+  const editingGoalId = searchParams.get("goal");
+  const modalOpen = modalMode === "add-goal" || modalMode === "edit-goal";
 
   const sheetQuery = useQuery({ queryKey: ["goal-sheets", "mine"], queryFn: fetchMySheet });
   const thrustQuery = useQuery({ queryKey: ["thrust-areas"], queryFn: fetchThrustAreas });
@@ -129,32 +133,56 @@ export function GoalsPage() {
   const weightage = numberValue(sheet?.totalWeightage);
   const remaining = Math.max(0, 100 - weightage);
   const sheetEditable = !sheet || ["draft", "returned"].includes(sheet.status);
+  const editingGoal = editingGoalId ? goals.find((goal) => goal.id === editingGoalId) ?? null : null;
+  const availableWeightage = editingGoal
+    ? Math.max(0, 100 - weightage + numberValue(editingGoal.weightage))
+    : remaining;
+  const addDisabledReason = !sheetEditable
+    ? "This sheet is locked for employee edits."
+    : goals.length >= 8
+      ? "A sheet can contain at most 8 goals."
+      : remaining === 0
+        ? "Free some weightage before adding another goal."
+        : null;
+  const submitIssues = [
+    goals.length === 0 ? "Add at least one goal." : null,
+    weightage !== 100 ? "Total weightage must be exactly 100%." : null,
+    !sheetEditable ? "Only draft or returned sheets can be submitted." : null,
+  ].filter((item): item is string => Boolean(item));
 
   const createSheet = useMutation({
     mutationFn: () => apiJson<GoalSheet>("/api/goal-sheets", { method: "POST" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["goal-sheets", "mine"] }),
   });
 
-  const addGoal = useMutation({
+  const saveGoal = useMutation({
     mutationFn: async (values: GoalFormValues) => {
       const activeSheet = sheet ?? (await createSheet.mutateAsync());
-      return apiJson<Goal>("/api/goals", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          sheet_id: activeSheet.id,
-          thrust_area_id: values.thrustAreaId,
-          title: values.title,
-          description: values.description,
-          uom_type: values.uomType,
-          target_value: values.uomType === "timeline" || values.uomType === "zero" ? null : Number(values.targetValue),
-          target_date: values.uomType === "timeline" ? values.targetDate : null,
-          weightage: values.weightage,
-        }),
-      });
+      const body = {
+        sheet_id: activeSheet.id,
+        thrust_area_id: values.thrustAreaId,
+        title: values.title,
+        description: values.description,
+        uom_type: values.uomType,
+        target_value: values.uomType === "timeline" || values.uomType === "zero" ? null : Number(values.targetValue),
+        target_date: values.uomType === "timeline" ? values.targetDate : null,
+        weightage: values.weightage,
+      };
+
+      return editingGoal
+        ? apiJson<Goal>(`/api/goals/${editingGoal.id}`, jsonRequest("PATCH", {
+            thrust_area_id: body.thrust_area_id,
+            title: body.title,
+            description: body.description,
+            uom_type: body.uom_type,
+            target_value: body.target_value,
+            target_date: body.target_date,
+            weightage: body.weightage,
+          }))
+        : apiJson<Goal>("/api/goals", jsonRequest("POST", body));
     },
     onSuccess: () => {
-      toast.success("Goal saved in draft sheet");
+      toast.success(editingGoal ? "Goal updated" : "Goal saved in draft sheet");
       queryClient.invalidateQueries({ queryKey: ["goal-sheets", "mine"] });
       closeModal();
     },
@@ -166,6 +194,7 @@ export function GoalsPage() {
     onMutate: () => toast.loading("Deleting goal...", { id: "delete-goal" }),
     onSuccess: () => {
       toast.success("Draft goal removed", { id: "delete-goal" });
+      setGoalPendingDelete(null);
       queryClient.invalidateQueries({ queryKey: ["goal-sheets", "mine"] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to delete goal", { id: "delete-goal" }),
@@ -196,12 +225,21 @@ export function GoalsPage() {
   function openModal() {
     const params = new URLSearchParams(searchParams);
     params.set("modal", "add-goal");
+    params.delete("goal");
+    router.push(`${pathname}?${params.toString()}`);
+  }
+
+  function openEdit(goalId: string) {
+    const params = new URLSearchParams(searchParams);
+    params.set("modal", "edit-goal");
+    params.set("goal", goalId);
     router.push(`${pathname}?${params.toString()}`);
   }
 
   function closeModal() {
     const params = new URLSearchParams(searchParams);
     params.delete("modal");
+    params.delete("goal");
     router.push(params.size ? `${pathname}?${params.toString()}` : pathname);
   }
 
@@ -220,17 +258,18 @@ export function GoalsPage() {
 
   return (
     <div className="portal-page">
-      <div className="page-title-row">
-        <div>
-          <span>My Goals</span>
-          <h2>FY 2025-26 goal sheet</h2>
-          <p>Use 1 to 8 goals, minimum 10% per goal, exactly 100% before submission.</p>
-        </div>
-        <Button disabled={!sheetEditable || goals.length >= 8 || remaining === 0} onClick={openModal}>
+      <PageHeader
+        eyebrow="My Goals"
+        title="FY 2025-26 goal sheet"
+        description="Use 1 to 8 goals, minimum 10% per goal, exactly 100% before submission."
+        actions={(
+          <Button disabled={Boolean(addDisabledReason)} onClick={openModal} title={addDisabledReason ?? undefined}>
           <Plus size={16} />
           Add Goal
-        </Button>
-      </div>
+          </Button>
+        )}
+      />
+      {addDisabledReason ? <InlineValidation tone="warning">{addDisabledReason}</InlineValidation> : null}
 
       <PortalCard className="weightage-panel">
         <div className="weightage-panel-top">
@@ -276,12 +315,18 @@ export function GoalsPage() {
               <div className="goal-card-footer">
                 <StatusBadge status={sheet?.status ?? "draft"} />
                 <div>
-                  <button disabled={!sheetEditable || goal.isLocked || goal.isShared} type="button">
+                  <button
+                    disabled={!sheetEditable || goal.isLocked || goal.isShared}
+                    onClick={() => openEdit(goal.id)}
+                    title={!sheetEditable || goal.isLocked || goal.isShared ? "This goal cannot be edited in its current state." : "Edit goal"}
+                    type="button"
+                  >
                     <SlidersHorizontal size={16} />
                   </button>
                   <button
                     disabled={!sheetEditable || goal.isLocked || goal.isShared}
-                    onClick={() => deleteGoal.mutate(goal.id)}
+                    onClick={() => setGoalPendingDelete(goal)}
+                    title={!sheetEditable || goal.isLocked || goal.isShared ? "This goal cannot be deleted in its current state." : "Delete goal"}
                     type="button"
                   >
                     <Trash2 size={16} />
@@ -310,20 +355,33 @@ export function GoalsPage() {
           <span>Goals: {goals.length > 0 ? "OK" : "Missing"} {goals.length}/8</span>
           <span>Weightage: {weightage === 100 ? "OK" : "Needs work"} {weightage}%</span>
           {sheet ? <StatusBadge status={sheet.status} /> : null}
+          {submitIssues[0] ? <span>{submitIssues[0]}</span> : null}
         </div>
-        <Button disabled={!sheet || !sheetEditable || weightage !== 100 || goals.length === 0 || submitSheet.isPending} onClick={() => submitSheet.mutate()}>
+        <Button disabled={!sheet || submitIssues.length > 0 || submitSheet.isPending} onClick={() => submitSheet.mutate()} title={submitIssues.join(" ") || undefined}>
           {submitSheet.isPending ? "Submitting..." : "Submit for Approval"}
         </Button>
       </div>
 
       <GoalModal
-        currentWeightage={weightage}
-        loading={addGoal.isPending || createSheet.isPending}
+        currentWeightage={editingGoal ? weightage - numberValue(editingGoal.weightage) : weightage}
+        initialGoal={editingGoal}
+        loading={saveGoal.isPending || createSheet.isPending}
+        mode={editingGoal ? "edit" : "add"}
         onClose={closeModal}
-        onSubmit={(values) => addGoal.mutate(values)}
+        onSubmit={(values) => saveGoal.mutate(values)}
         open={modalOpen}
-        remaining={remaining || 100}
+        remaining={availableWeightage || 100}
         thrustAreas={thrustQuery.data ?? []}
+      />
+      <ConfirmDialog
+        danger
+        confirmLabel="Delete Goal"
+        description={`Delete "${goalPendingDelete?.title ?? "this goal"}" from your draft sheet? The sheet weightage will be recalculated.`}
+        loading={deleteGoal.isPending}
+        onCancel={() => setGoalPendingDelete(null)}
+        onConfirm={() => goalPendingDelete && deleteGoal.mutate(goalPendingDelete.id)}
+        open={Boolean(goalPendingDelete)}
+        title="Delete draft goal"
       />
     </div>
   );
@@ -331,7 +389,9 @@ export function GoalsPage() {
 
 function GoalModal({
   currentWeightage,
+  initialGoal,
   loading,
+  mode,
   open,
   remaining,
   thrustAreas,
@@ -339,7 +399,9 @@ function GoalModal({
   onSubmit,
 }: {
   currentWeightage: number;
+  initialGoal?: Goal | null;
   loading: boolean;
+  mode: "add" | "edit";
   open: boolean;
   remaining: number;
   thrustAreas: ThrustArea[];
@@ -349,13 +411,13 @@ function GoalModal({
   const form = useForm<GoalFormValues>({
     resolver: zodResolver(goalSchema),
     values: {
-      thrustAreaId: thrustAreas[0]?.id ?? "00000000-0000-0000-0000-000000000000",
-      title: "",
-      description: "",
-      uomType: "min_numeric",
-      targetValue: "",
-      targetDate: "",
-      weightage: Math.min(Math.max(remaining || 10, 10), 25),
+      thrustAreaId: initialGoal?.thrustAreaId ?? thrustAreas[0]?.id ?? "00000000-0000-0000-0000-000000000000",
+      title: initialGoal?.title ?? "",
+      description: initialGoal?.description ?? "",
+      uomType: initialGoal?.uomType ?? "min_numeric",
+      targetValue: initialGoal?.targetValue?.toString() ?? "",
+      targetDate: initialGoal?.targetDate?.slice(0, 10) ?? "",
+      weightage: initialGoal ? numberValue(initialGoal.weightage) : Math.min(Math.max(remaining || 10, 10), 25),
     },
   });
   const uomType = form.watch("uomType");
@@ -370,7 +432,7 @@ function GoalModal({
         <div className="modal-header">
           <div>
             <span>Draft mode</span>
-            <h3>Add New Goal</h3>
+            <h3>{mode === "edit" ? "Edit Goal" : "Add New Goal"}</h3>
           </div>
           <button aria-label="Close" onClick={onClose} type="button">
             <X size={18} />
@@ -409,6 +471,7 @@ function GoalModal({
               ["min_numeric", "Min #", "Higher is better"],
               ["min_percent", "Min %", "Higher percentage is better"],
               ["max_numeric", "Max #", "Lower is better"],
+              ["max_percent", "Max %", "Lower percentage is better"],
               ["timeline", "Timeline", "Complete by date"],
               ["zero", "Zero", "Zero means success"],
             ].map(([value, label, help]) => (
@@ -455,7 +518,7 @@ function GoalModal({
           </Button>
           <Button disabled={loading || thrustAreas.length === 0} type="submit">
             <Save size={16} />
-            {loading ? "Saving..." : "Save Goal"}
+            {loading ? "Saving..." : mode === "edit" ? "Update Goal" : "Save Goal"}
           </Button>
         </div>
       </form>

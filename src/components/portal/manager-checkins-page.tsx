@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MessageSquareText, Send } from "lucide-react";
 import { quarters } from "@/lib/portal-data";
 import { Button } from "@/components/ui/button";
-import { PortalCard, ScoreChip, SkeletonBlock } from "@/components/portal/portal-ui";
+import { PortalCard, ScoreChip, SkeletonBlock, StatusTimeline } from "@/components/portal/portal-ui";
+import { apiJson, jsonRequest } from "@/lib/api/client";
 
 type GoalSheet = {
   id: string;
@@ -26,15 +27,18 @@ type GoalSheet = {
       computedScore: string | number | null;
     }>;
   }>;
+  checkinComments: Array<{
+    quarter: "Q1" | "Q2" | "Q3" | "Q4";
+    overallComment: string;
+    keyObservations: string | null;
+    areasOfImprovement: string | null;
+    supportRequired: string | null;
+    checkinDate: string;
+  }>;
 };
 
 async function fetchSheet(sheetId: string) {
-  const response = await fetch(`/api/goal-sheets/${sheetId}`);
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load check-in sheet");
-  }
-  return payload.data as GoalSheet;
+  return apiJson<GoalSheet>(`/api/goal-sheets/${sheetId}`);
 }
 
 function targetFor(goal: GoalSheet["goals"][number]) {
@@ -65,26 +69,25 @@ export function ManagerCheckinsPage({ sheetId }: { sheetId: string }) {
   const [supportRequired, setSupportRequired] = useState("");
   const sheetQuery = useQuery({ queryKey: ["goal-sheet", sheetId], queryFn: () => fetchSheet(sheetId) });
   const sheet = sheetQuery.data;
+  const existingComment = sheet?.checkinComments.find((comment) => comment.quarter === quarter);
+
+  useEffect(() => {
+    setOverallComment(existingComment?.overallComment ?? "");
+    setKeyObservations(existingComment?.keyObservations ?? "");
+    setAreasOfImprovement(existingComment?.areasOfImprovement ?? "");
+    setSupportRequired(existingComment?.supportRequired ?? "");
+  }, [existingComment, quarter]);
 
   const saveComment = useMutation({
     mutationFn: async () => {
-      const response = await fetch("/api/checkin-comments", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
+      return apiJson("/api/checkin-comments", jsonRequest("POST", {
           sheet_id: sheetId,
           quarter,
           overall_comment: overallComment,
           key_observations: keyObservations,
           areas_of_improvement: areasOfImprovement,
           support_required: supportRequired,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok || payload.success === false) {
-        throw new Error(payload.message ?? "Unable to submit check-in");
-      }
-      return payload.data;
+        }));
     },
     onSuccess: () => {
       toast.success("Check-in comment submitted and employee notified");
@@ -180,8 +183,29 @@ export function ManagerCheckinsPage({ sheetId }: { sheetId: string }) {
         </div>
         <Button disabled={overallComment.trim().length < 20 || saveComment.isPending} onClick={() => saveComment.mutate()} type="button">
           <Send size={16} />
-          {saveComment.isPending ? "Submitting..." : "Submit Check-in Comment"}
+          {saveComment.isPending ? "Submitting..." : existingComment ? "Update Check-in Comment" : "Submit Check-in Comment"}
         </Button>
+      </PortalCard>
+
+      <PortalCard>
+        <div className="card-title-row">
+          <div>
+            <span className="card-eyebrow">Feedback history</span>
+            <h3>Quarterly manager notes</h3>
+          </div>
+        </div>
+        <StatusTimeline
+          items={quarters.map((item) => {
+            const comment = sheet.checkinComments.find((entry) => entry.quarter === item);
+            return {
+              label: item,
+              complete: Boolean(comment),
+              detail: comment
+                ? `${comment.overallComment} (${new Date(comment.checkinDate).toLocaleDateString()})`
+                : "No structured feedback saved yet.",
+            };
+          })}
+        />
       </PortalCard>
     </div>
   );

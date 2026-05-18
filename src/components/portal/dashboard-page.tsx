@@ -20,8 +20,11 @@ import {
   StatusBadge,
 } from "@/components/portal/portal-ui";
 import type { PortalSession } from "@/lib/auth-types";
+import { apiJson } from "@/lib/api/client";
 
 type DashboardStats = {
+  activeCycleName?: string;
+  activeWindowLabel?: string;
   mySheet?: {
     status: "draft" | "submitted" | "returned" | "approved" | "locked";
     goalCount: number;
@@ -50,10 +53,7 @@ type DashboardStats = {
 };
 
 async function fetchDashboardStats() {
-  const response = await fetch("/api/dashboard/stats");
-  if (!response.ok) throw new Error("Unable to load dashboard stats");
-  const payload = (await response.json()) as { data?: DashboardStats };
-  return payload.data ?? {};
+  return apiJson<DashboardStats>("/api/dashboard/stats");
 }
 
 export function DashboardPage({ session }: { session: PortalSession | null }) {
@@ -82,7 +82,7 @@ export function DashboardPage({ session }: { session: PortalSession | null }) {
     <div className="portal-page">
       <div className="page-hero">
         <div>
-          <span>FY 2025-26</span>
+          <span>{stats?.activeCycleName ?? "Active cycle"}</span>
           <h2>
             {getGreeting()}, {user?.name ?? "there"}
           </h2>
@@ -161,7 +161,7 @@ export function DashboardPage({ session }: { session: PortalSession | null }) {
           <CalendarDays size={22} />
           <span>Active window</span>
           <strong>{stats?.currentQuarter ?? "Q2"}</strong>
-          <p>{stats?.daysUntilWindowClose ?? 0} days until this window closes</p>
+          <p>{stats?.activeWindowLabel ?? "Quarterly check-in"} / {stats?.daysUntilWindowClose ?? 0} days until close</p>
         </PortalCard>
 
         <PortalCard className="dashboard-card-large team-overview-card" id="team-overview">

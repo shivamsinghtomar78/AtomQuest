@@ -190,6 +190,23 @@ export const cycleCreateSchema = z.object({
   is_active: z.boolean().optional().default(true),
 });
 
+export const cyclePatchSchema = cycleCreateSchema.partial();
+
+const optionalPatchText = (max = 2000) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .nullable()
+    .transform((value) => (value === undefined ? undefined : value || null));
+
+export const profilePatchSchema = z.object({
+  name: z.string().trim().min(2).max(255).optional(),
+  department: optionalPatchText(255),
+  designation: optionalPatchText(255),
+});
+
 export const thrustAreaCreateSchema = z.object({
   name: z.string().trim().min(2).max(255),
   description: optionalText(2000),
@@ -220,4 +237,23 @@ export const userCreateSchema = z.object({
 export const userRolePatchSchema = z.object({
   role: roleSchema,
   reason: z.string().trim().min(10).max(1000).optional(),
+});
+
+export const escalationRuleCreateSchema = z.object({
+  cycle_id: uuidSchema.optional().nullable(),
+  trigger_event: z.string().trim().min(3).max(100),
+  days_threshold: z.coerce.number().int().positive().max(365),
+  notify_employee: z.boolean().optional().default(true),
+  notify_manager: z.boolean().optional().default(true),
+  notify_admin: z.boolean().optional().default(false),
+  is_active: z.boolean().optional().default(true),
+});
+
+export const escalationRulePatchSchema = escalationRuleCreateSchema.partial().extend({
+  id: uuidSchema,
+});
+
+export const reminderSchema = z.object({
+  sheet_ids: z.array(uuidSchema).min(1).max(100),
+  message: optionalText(1000),
 });

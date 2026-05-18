@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { CheckCircle2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PortalCard, ProgressBar, SkeletonBlock, StatusBadge } from "@/components/portal/portal-ui";
+import { apiJson, jsonRequest } from "@/lib/api/client";
 
 type GoalSheet = {
   id: string;
@@ -28,12 +29,7 @@ type GoalSheet = {
 };
 
 async function fetchSheet(sheetId: string) {
-  const response = await fetch(`/api/goal-sheets/${sheetId}`);
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load goal sheet");
-  }
-  return payload.data as GoalSheet;
+  return apiJson<GoalSheet>(`/api/goal-sheets/${sheetId}`);
 }
 
 async function reviewSheet(input: {
@@ -42,20 +38,11 @@ async function reviewSheet(input: {
   remarks?: string | null;
   updatedGoals: Array<{ id: string; target_value?: number | null; target_date?: string | null; weightage?: number }>;
 }) {
-  const response = await fetch(`/api/goal-sheets/${input.sheetId}/approve`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+  return apiJson<GoalSheet>(`/api/goal-sheets/${input.sheetId}/approve`, jsonRequest("PATCH", {
       approved: input.approved,
       remarks: input.remarks,
       updated_goals: input.updatedGoals,
-    }),
-  });
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to review goal sheet");
-  }
-  return payload.data as GoalSheet;
+    }));
 }
 
 function initials(name: string) {

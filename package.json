@@ -11,7 +11,8 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "test": "npm run test:scoring",
-    "test:scoring": "tsx src/lib/scoring.test.ts"
+    "test:scoring": "tsx src/lib/scoring.test.ts",
+    "test:smoke": "playwright test tests/smoke.spec.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -44,6 +45,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/node": "^25.8.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

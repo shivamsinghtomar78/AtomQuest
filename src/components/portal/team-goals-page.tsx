@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Search, Send } from "lucide-react";
 import { toast } from "sonner";
 import { quarters } from "@/lib/portal-data";
 import { Button } from "@/components/ui/button";
 import { EmptyState, ScoreChip, SkeletonBlock, StatusBadge } from "@/components/portal/portal-ui";
 import { cn } from "@/lib/utils";
+import { apiJson, jsonRequest } from "@/lib/api/client";
 
 type GoalSheet = {
   id: string;
@@ -34,12 +35,8 @@ type GoalSheet = {
 };
 
 async function fetchGoalSheets() {
-  const response = await fetch("/api/goal-sheets");
-  const payload = await response.json();
-  if (!response.ok || payload.success === false) {
-    throw new Error(payload.message ?? "Unable to load team goals");
-  }
-  return (payload.data?.items ?? []) as GoalSheet[];
+  const payload = await apiJson<{ items: GoalSheet[] }>("/api/goal-sheets");
+  return payload.items ?? [];
 }
 
 function initials(name: string) {
@@ -66,12 +63,28 @@ function latestScore(goal: GoalSheet["goals"][number]) {
 }
 
 export function TeamGoalsPage({ mode = "goals" }: { mode?: "goals" | "checkins" }) {
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState("all");
   const [department, setDepartment] = useState("all");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const sheetsQuery = useQuery({ queryKey: ["goal-sheets", "team"], queryFn: fetchGoalSheets });
   const sheets = sheetsQuery.data ?? [];
+  const reminderMutation = useMutation({
+    mutationFn: (sheetIds: string[]) =>
+      apiJson<{ count: number }>("/api/notifications/reminders", jsonRequest("POST", {
+        sheet_ids: sheetIds,
+        message:
+          mode === "checkins"
+            ? "Please complete the open quarterly check-in updates in AtomQuest."
+            : "Please review and complete your goal sheet workflow in AtomQuest.",
+      })),
+    onSuccess: (data) => {
+      toast.success(`${data.count} reminder${data.count === 1 ? "" : "s"} sent`);
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to send reminders"),
+  });
 
   useEffect(() => {
     const saved = sessionStorage.getItem("atomquest:team-goals-scroll");
@@ -98,6 +111,9 @@ export function TeamGoalsPage({ mode = "goals" }: { mode?: "goals" | "checkins" 
       }),
     [department, search, sheets, status]
   );
+  const remindableSheetIds = rows
+    .filter((sheet) => !["approved", "locked"].includes(sheet.status))
+    .map((sheet) => sheet.id);
 
   if (sheetsQuery.isLoading) {
     return (
@@ -117,9 +133,13 @@ export function TeamGoalsPage({ mode = "goals" }: { mode?: "goals" | "checkins" 
           <h2>{mode === "checkins" ? "Manage quarterly check-ins" : "Review goal sheets and check-in completion"}</h2>
           <p>Expand a team member to inspect goals before approval or check-in.</p>
         </div>
-        <Button onClick={() => toast.info("Reminder notifications queued for pending employees.")}>
+        <Button
+          disabled={!remindableSheetIds.length || reminderMutation.isPending}
+          onClick={() => reminderMutation.mutate(remindableSheetIds)}
+          title={!remindableSheetIds.length ? "No pending sheets in the current filter." : undefined}
+        >
           <Send size={16} />
-          Send Reminder
+          {reminderMutation.isPending ? "Sending..." : "Send Reminder"}
         </Button>
       </div>
 
