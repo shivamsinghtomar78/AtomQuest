@@ -9,7 +9,6 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: process.cwd(),
   outputFileTracingExcludes: {
     "*": [
-      ".next/**",
       "build-attempt.log",
       "dev-server*.log",
       "node_modules/playwright/**",
