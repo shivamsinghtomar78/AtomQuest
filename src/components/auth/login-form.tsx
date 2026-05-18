@@ -1,36 +1,46 @@
 "use client";
 
-import { signIn } from "next-auth/react";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { Eye, EyeOff } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { getFirebaseClient } from "@/lib/firebase/client";
 
 type DemoUser = {
   label: string;
   email: string;
+  password: string;
 };
 
 const demoUsers: DemoUser[] = [
-  { label: "Employee", email: "emp1@atomquest.com" },
-  { label: "Manager", email: "manager@atomquest.com" },
-  { label: "Admin", email: "admin@atomquest.com" },
+  { label: "Employee", email: "emp1@atomquest.com", password: "Employee@1234" },
+  { label: "Manager", email: "manager@atomquest.com", password: "Manager@1234" },
+  { label: "Admin", email: "admin@atomquest.com", password: "Admin@1234" },
 ];
 
-const demoPassword = "AtomQuest@123";
+function validInternalPath(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
+  if (value.startsWith("/api/") || value.startsWith("/_next/")) return "/dashboard";
+  return value;
+}
 
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/app";
+  const callbackUrl = validInternalPath(searchParams.get("callbackUrl"));
   const hasUrlError = searchParams.has("error");
+  const sessionExpired = searchParams.get("reason") === "session_expired";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [hasSubmitError, setHasSubmitError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(
+    sessionExpired || hasUrlError
+      ? "Your session expired. Please sign in again."
+      : null
+  );
 
-  const showError = hasUrlError || hasSubmitError;
   const isDemoMode = process.env.NODE_ENV !== "production";
 
   const passwordInputType = useMemo(
@@ -38,39 +48,60 @@ export function LoginForm() {
     [showPassword]
   );
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIsSubmitting(true);
-    setHasSubmitError(false);
+  useEffect(() => {
+    const rememberedEmail = localStorage.getItem("atomquest:remember-email");
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-      callbackUrl,
-    });
-
-    setIsSubmitting(false);
-
-    if (!result?.ok) {
-      setHasSubmitError(true);
-      return;
+    if (rememberedEmail) {
+      setEmail(rememberedEmail);
+      setRemember(true);
     }
+  }, []);
 
+  function rememberEmail(value = email) {
     if (remember) {
-      localStorage.setItem("atomquest:remember-email", email);
+      localStorage.setItem("atomquest:remember-email", value);
     } else {
       localStorage.removeItem("atomquest:remember-email");
     }
+  }
 
-    router.push(result.url || callbackUrl);
-    router.refresh();
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      const { auth } = getFirebaseClient();
+      const credential = await signInWithEmailAndPassword(auth, email, password);
+      const idToken = await credential.user.getIdToken();
+      const response = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ idToken }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Invalid email or password. Please try again.");
+      }
+
+      rememberEmail(email);
+      router.replace(callbackUrl);
+      router.refresh();
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Unable to sign in. Please try again."
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   function fillDemoUser(user: DemoUser) {
     setEmail(user.email);
-    setPassword(demoPassword);
-    setHasSubmitError(false);
+    setPassword(user.password);
+    setErrorMessage(null);
   }
 
   return (
@@ -126,8 +157,8 @@ export function LoginForm() {
           Remember me
         </label>
 
-        <button className="primary-button" disabled={isSubmitting} type="submit">
-          {isSubmitting ? (
+        <button className="primary-button" disabled={submitting} type="submit">
+          {submitting ? (
             <>
               <span className="spinner" aria-hidden="true" />
               Signing in...
@@ -137,9 +168,9 @@ export function LoginForm() {
           )}
         </button>
 
-        {showError ? (
+        {errorMessage ? (
           <div className="error-pill" role="alert">
-            Invalid credentials. Please try again.
+            {errorMessage}
           </div>
         ) : null}
       </form>
@@ -151,6 +182,7 @@ export function LoginForm() {
             {demoUsers.map((user) => (
               <button
                 className="secondary-button"
+                disabled={submitting}
                 key={user.email}
                 type="button"
                 onClick={() => fillDemoUser(user)}

@@ -4,6 +4,7 @@ import { notFound } from "@/lib/api/errors";
 import { ok, route } from "@/lib/api/response";
 import { userRolePatchSchema, uuidSchema } from "@/lib/api/schemas";
 import { prisma } from "@/lib/prisma";
+import { adminAuth } from "@/lib/firebase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export async function PATCH(
 
     const existing = await prisma.user.findUnique({ where: { id: userId } });
     if (!existing) throw notFound("User not found");
+    if (existing.firebaseUid) {
+      await adminAuth.setCustomUserClaims(existing.firebaseUid, { role: body.role });
+    }
 
     const user = await prisma.user.update({
       where: { id: userId },

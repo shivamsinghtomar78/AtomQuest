@@ -1,20 +1,84 @@
-import type { Session } from "next-auth";
-import { auth } from "../../../auth";
+import { cookies, headers } from "next/headers";
+import { prisma } from "@/lib/prisma";
+import { adminAuth, normalizeFirebaseRole } from "@/lib/firebase/admin";
 import { forbidden, unauthorized } from "./errors";
+import type { PortalRole, PortalSession } from "@/lib/auth-types";
 
-export type ApiSession = Session & {
-  user: NonNullable<Session["user"]>;
-};
+export type ApiSession = PortalSession;
+
+async function resolveFirebaseIdentity() {
+  const headerStore = await headers();
+  const uid = headerStore.get("x-user-uid");
+  const role = normalizeFirebaseRole(headerStore.get("x-user-role"));
+  const email = headerStore.get("x-user-email") ?? "";
+
+  if (uid) return { uid, role, email };
+
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get("__session")?.value;
+  if (!sessionCookie) throw unauthorized();
+
+  try {
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    return {
+      uid: decoded.uid,
+      role: normalizeFirebaseRole(decoded.role),
+      email: decoded.email ?? "",
+    };
+  } catch {
+    throw unauthorized("Session expired");
+  }
+}
 
 export async function requireSession(): Promise<ApiSession> {
-  const session = await auth();
-  if (!session?.user?.id) throw unauthorized();
-  return session as ApiSession;
+  const identity = await resolveFirebaseIdentity();
+
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { firebaseUid: identity.uid },
+        ...(identity.email ? [{ email: identity.email.toLowerCase() }] : []),
+      ],
+      isActive: true,
+    },
+    select: {
+      id: true,
+      firebaseUid: true,
+      email: true,
+      name: true,
+      role: true,
+      department: true,
+      designation: true,
+      managerId: true,
+    },
+  });
+
+  if (!user) throw unauthorized("User profile not found");
+
+  if (!user.firebaseUid) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { firebaseUid: identity.uid },
+    });
+  }
+
+  return {
+    user: {
+      id: user.id,
+      firebaseUid: user.firebaseUid ?? identity.uid,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      department: user.department,
+      designation: user.designation,
+      managerId: user.managerId,
+    },
+  };
 }
 
 export function requireRole(
   session: ApiSession,
-  roles: Array<"employee" | "manager" | "admin">
+  roles: PortalRole[]
 ) {
   if (!roles.includes(session.user.role)) {
     throw forbidden("You do not have access to this resource");

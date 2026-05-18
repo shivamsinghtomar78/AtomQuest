@@ -1,7 +1,7 @@
 import type { Prisma, Quarter, UomType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { computeProgressScore } from "@/lib/scoring";
-import { badRequest, forbidden, notFound } from "./errors";
+import { badRequest, forbidden, notFound, windowClosed } from "./errors";
 import type { ApiSession } from "./auth";
 
 export const goalInclude = {
@@ -48,6 +48,82 @@ export function todayDateOnly() {
   return dateOnly(new Date());
 }
 
+export type CycleWindows = {
+  goalSettingOpens: Date;
+  q1Opens: Date;
+  q2Opens: Date;
+  q3Opens: Date;
+  q4Opens: Date;
+};
+
+export type WindowName = "goal_setting" | Quarter;
+
+const windowLabels: Record<WindowName, string> = {
+  goal_setting: "Goal setting",
+  Q1: "Q1 check-in",
+  Q2: "Q2 check-in",
+  Q3: "Q3 check-in",
+  Q4: "Q4 check-in",
+};
+
+function windowOpenMap(cycle: CycleWindows) {
+  return {
+    goal_setting: dateOnly(cycle.goalSettingOpens),
+    Q1: dateOnly(cycle.q1Opens),
+    Q2: dateOnly(cycle.q2Opens),
+    Q3: dateOnly(cycle.q3Opens),
+    Q4: dateOnly(cycle.q4Opens),
+  } satisfies Record<WindowName, Date>;
+}
+
+function formatLongDate(date: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+export function getWindowState(window: WindowName, cycle: CycleWindows, now = todayDateOnly()) {
+  const opens = windowOpenMap(cycle);
+  const openDate = opens[window];
+  const nextOpen = Object.values(opens)
+    .filter((date) => date.getTime() > openDate.getTime())
+    .sort((a, b) => a.getTime() - b.getTime())[0];
+  const closeDate = nextOpen ?? dateOnly("2099-01-01");
+  const isOpen = now >= openDate && now < closeDate;
+  const closesOn = new Date(closeDate.getTime() - 86_400_000);
+  const daysUntilOpen = Math.ceil((openDate.getTime() - now.getTime()) / 86_400_000);
+
+  return {
+    window,
+    isOpen,
+    opensAt: openDate,
+    closesAt: closeDate,
+    closesOn,
+    daysUntilOpen: Math.max(daysUntilOpen, 0),
+  };
+}
+
+export function assertWindowOpen(window: WindowName, cycle: CycleWindows) {
+  const state = getWindowState(window, cycle);
+
+  if (state.isOpen) return state;
+
+  if (todayDateOnly() < state.opensAt) {
+    throw windowClosed(
+      `${windowLabels[window]} window opens ${formatLongDate(state.opensAt)}.`,
+      state
+    );
+  }
+
+  throw windowClosed(
+    `${windowLabels[window]} window closed on ${formatLongDate(state.closesOn)}.`,
+    state
+  );
+}
+
 export async function getActiveCycle() {
   return prisma.goalCycle.findFirst({
     where: { isActive: true },
@@ -61,32 +137,15 @@ export async function requireActiveCycle() {
   return cycle;
 }
 
-export function assertGoalSettingOpen(goalSettingOpens: Date) {
-  if (todayDateOnly() < dateOnly(goalSettingOpens)) {
-    throw badRequest("Goal setting window is not currently open");
-  }
+export function assertGoalSettingOpen(cycle: CycleWindows) {
+  assertWindowOpen("goal_setting", cycle);
 }
 
 export function assertQuarterWindowOpen(
-  cycle: {
-    q1Opens: Date;
-    q2Opens: Date;
-    q3Opens: Date;
-    q4Opens: Date;
-  },
+  cycle: CycleWindows,
   quarter: Quarter
 ) {
-  const today = todayDateOnly();
-  const opens = {
-    Q1: cycle.q1Opens,
-    Q2: cycle.q2Opens,
-    Q3: cycle.q3Opens,
-    Q4: cycle.q4Opens,
-  }[quarter];
-
-  if (today < dateOnly(opens)) {
-    throw forbidden(`${quarter} check-in window opens ${opens.toISOString().slice(0, 10)}`);
-  }
+  assertWindowOpen(quarter, cycle);
 }
 
 export async function recalculateSheetWeightage(sheetId: string) {
@@ -136,7 +195,7 @@ export async function assertSheetOwnerCanEdit(session: ApiSession, sheetId: stri
   if (!["draft", "returned"].includes(sheet.status)) {
     throw forbidden("Goal sheet can only be edited while draft or returned");
   }
-  assertGoalSettingOpen(sheet.cycle.goalSettingOpens);
+  assertGoalSettingOpen(sheet.cycle);
 
   return sheet;
 }

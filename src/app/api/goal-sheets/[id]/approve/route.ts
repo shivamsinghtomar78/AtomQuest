@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/api/auth";
 import {
+  assertGoalSettingOpen,
   assertGoalWeightageLimit,
   recalculateSheetWeightage,
   validateSubmitGoals,
@@ -30,6 +31,7 @@ export async function PATCH(
       where: { id: sheetId },
       include: {
         employee: true,
+        cycle: true,
         goals: { where: { deletedAt: null } },
       },
     });
@@ -44,6 +46,7 @@ export async function PATCH(
     if (!body.approved && !body.remarks?.trim()) {
       throw badRequest("Remarks are required when returning a goal sheet");
     }
+    assertGoalSettingOpen(sheet.cycle);
 
     for (const goalPatch of body.updated_goals) {
       const goal = sheet.goals.find((item) => item.id === goalPatch.id);

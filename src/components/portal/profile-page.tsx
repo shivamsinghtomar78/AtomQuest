@@ -1,13 +1,13 @@
 "use client";
 
-import type { Session } from "next-auth";
 import { toast } from "sonner";
 import { KeyRound, Save } from "lucide-react";
 import { getPortalUser } from "@/lib/portal-data";
 import { Button } from "@/components/ui/button";
 import { PortalCard } from "@/components/portal/portal-ui";
+import type { PortalSession } from "@/lib/auth-types";
 
-export function ProfilePage({ session }: { session: Session | null }) {
+export function ProfilePage({ session }: { session: PortalSession | null }) {
   const user = getPortalUser(session);
 
   return (

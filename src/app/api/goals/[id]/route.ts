@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import {
   assertGoalAccess,
+  assertGoalSettingOpen,
   assertGoalWeightageLimit,
   dateOnly,
   goalInclude,
@@ -42,6 +43,7 @@ export async function PATCH(
     if (!isOwner && !isManager && session.user.role !== "admin") {
       throw forbidden("You cannot edit this goal");
     }
+    assertGoalSettingOpen(goal.sheet.cycle);
 
     if (body.weightage !== undefined) {
       await assertGoalWeightageLimit(goal.sheetId, body.weightage, goal.id);
@@ -119,6 +121,7 @@ export async function DELETE(
     if (goal.isLocked && session.user.role !== "admin") {
       throw forbidden("Locked goals can only be deleted by an admin");
     }
+    assertGoalSettingOpen(goal.sheet.cycle);
 
     await prisma.goal.update({
       where: { id: goal.id },

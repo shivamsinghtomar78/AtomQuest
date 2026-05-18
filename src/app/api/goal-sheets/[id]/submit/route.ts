@@ -37,7 +37,7 @@ export async function PATCH(
       throw badRequest("Only draft or returned goal sheets can be submitted");
     }
 
-    assertGoalSettingOpen(sheet.cycle.goalSettingOpens);
+    assertGoalSettingOpen(sheet.cycle);
     validateSubmitGoals(sheet);
 
     const updated = await prisma.goalSheet.update({

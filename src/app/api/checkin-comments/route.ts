@@ -1,7 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/api/auth";
-import { assertSheetAccess } from "@/lib/api/business";
+import { assertQuarterWindowOpen, assertSheetAccess } from "@/lib/api/business";
 import { forbidden, notFound } from "@/lib/api/errors";
 import { ok, route } from "@/lib/api/response";
 import { checkinCommentSchema } from "@/lib/api/schemas";
@@ -20,13 +20,14 @@ export async function POST(request: NextRequest) {
 
     const sheet = await prisma.goalSheet.findUnique({
       where: { id: body.sheet_id },
-      include: { employee: true },
+      include: { employee: true, cycle: true },
     });
 
     if (!sheet) throw notFound("Goal sheet not found");
     if (session.user.role !== "admin" && sheet.employee.managerId !== session.user.id) {
       throw forbidden("Only the direct manager can comment on this sheet");
     }
+    assertQuarterWindowOpen(sheet.cycle, body.quarter);
 
     const comment = await prisma.checkinComment.upsert({
       where: {

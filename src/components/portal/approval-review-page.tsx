@@ -1,51 +1,164 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CheckCircle2, RotateCcw } from "lucide-react";
-import { getMemberById } from "@/lib/portal-data";
 import { Button } from "@/components/ui/button";
-import { PortalCard, ProgressBar, StatusBadge } from "@/components/portal/portal-ui";
+import { PortalCard, ProgressBar, SkeletonBlock, StatusBadge } from "@/components/portal/portal-ui";
+
+type GoalSheet = {
+  id: string;
+  status: "draft" | "submitted" | "returned" | "approved" | "locked";
+  employee: {
+    name: string;
+    email: string;
+    department: string | null;
+    designation: string | null;
+  };
+  goals: Array<{
+    id: string;
+    title: string;
+    description: string | null;
+    targetValue: string | number | null;
+    targetDate: string | null;
+    weightage: string | number;
+    thrustArea: { name: string; colorHex: string };
+  }>;
+};
+
+async function fetchSheet(sheetId: string) {
+  const response = await fetch(`/api/goal-sheets/${sheetId}`);
+  const payload = await response.json();
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message ?? "Unable to load goal sheet");
+  }
+  return payload.data as GoalSheet;
+}
+
+async function reviewSheet(input: {
+  sheetId: string;
+  approved: boolean;
+  remarks?: string | null;
+  updatedGoals: Array<{ id: string; target_value?: number | null; target_date?: string | null; weightage?: number }>;
+}) {
+  const response = await fetch(`/api/goal-sheets/${input.sheetId}/approve`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      approved: input.approved,
+      remarks: input.remarks,
+      updated_goals: input.updatedGoals,
+    }),
+  });
+  const payload = await response.json();
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message ?? "Unable to review goal sheet");
+  }
+  return payload.data as GoalSheet;
+}
+
+function initials(name: string) {
+  return name
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function numberValue(value: string | number | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function targetValue(goal: GoalSheet["goals"][number]) {
+  return goal.targetDate?.slice(0, 10) ?? goal.targetValue?.toString() ?? "";
+}
 
 export function ApprovalReviewPage({ employeeId }: { employeeId: string }) {
-  const member = getMemberById(employeeId);
+  const queryClient = useQueryClient();
+  const sheetQuery = useQuery({
+    queryKey: ["goal-sheet", employeeId],
+    queryFn: () => fetchSheet(employeeId),
+  });
+  const sheet = sheetQuery.data;
   const [remarks, setRemarks] = useState("");
-  const [edits, setEdits] = useState(
-    member.goals.map((goal) => ({ id: goal.id, target: goal.target, weightage: goal.weightage }))
-  );
+  const [edits, setEdits] = useState<Array<{ id: string; target: string; weightage: number }>>([]);
+
+  useEffect(() => {
+    if (sheet && edits.length === 0) {
+      setEdits(sheet.goals.map((goal) => ({ id: goal.id, target: targetValue(goal), weightage: numberValue(goal.weightage) })));
+    }
+  }, [edits.length, sheet]);
+
   const total = useMemo(() => edits.reduce((sum, goal) => sum + Number(goal.weightage || 0), 0), [edits]);
+  const reviewMutation = useMutation({
+    mutationFn: (approved: boolean) =>
+      reviewSheet({
+        sheetId: employeeId,
+        approved,
+        remarks,
+        updatedGoals: edits.map((goal, index) => {
+          const original = sheet?.goals[index];
+          const isTimeline = Boolean(original?.targetDate);
+          return {
+            id: goal.id,
+            weightage: goal.weightage,
+            target_value: isTimeline ? undefined : Number(goal.target),
+            target_date: isTimeline ? goal.target : undefined,
+          };
+        }),
+      }),
+    onSuccess: (_data, approved) => {
+      toast.success(approved ? "Goal sheet approved and locked" : "Goal sheet returned for rework");
+      queryClient.invalidateQueries({ queryKey: ["goal-sheet", employeeId] });
+      queryClient.invalidateQueries({ queryKey: ["goal-sheets", "team"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications", "unread-count"] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : "Unable to review sheet"),
+  });
+
+  if (sheetQuery.isLoading || !sheet) {
+    return (
+      <div className="portal-page">
+        <SkeletonBlock className="page-title-row" />
+        <SkeletonBlock />
+      </div>
+    );
+  }
 
   return (
     <div className="portal-page">
       <div className="page-title-row">
         <div>
           <span>Approval Review</span>
-          <h2>{member.name}</h2>
-          <p>{member.department} / {member.designation}</p>
+          <h2>{sheet.employee.name}</h2>
+          <p>{sheet.employee.department} / {sheet.employee.designation}</p>
         </div>
-        <StatusBadge status={member.status} />
+        <StatusBadge status={sheet.status} />
       </div>
 
       <div className="review-layout">
         <section className="review-left">
           <PortalCard className="employee-summary">
-            <div className="avatar avatar-lg">{member.initials}</div>
+            <div className="avatar avatar-lg">{initials(sheet.employee.name)}</div>
             <div>
-              <h3>{member.name}</h3>
-              <p>{member.email}</p>
-              <span>{member.manager}</span>
+              <h3>{sheet.employee.name}</h3>
+              <p>{sheet.employee.email}</p>
+              <span>{sheet.employee.department}</span>
             </div>
           </PortalCard>
-          {member.goals.map((goal) => (
+          {sheet.goals.map((goal) => (
             <article className="review-goal-card" key={goal.id}>
-              <span className="thrust-pill" style={{ "--thrust-color": goal.color } as React.CSSProperties}>
-                {goal.thrustArea}
+              <span className="thrust-pill" style={{ "--thrust-color": goal.thrustArea.colorHex } as React.CSSProperties}>
+                {goal.thrustArea.name}
               </span>
               <h3>{goal.title}</h3>
               <p>{goal.description}</p>
               <div>
-                <span>Target: {goal.target}</span>
-                <span>Weightage: {goal.weightage}%</span>
+                <span>Target: {targetValue(goal)}</span>
+                <span>Weightage: {numberValue(goal.weightage)}%</span>
               </div>
             </article>
           ))}
@@ -66,7 +179,7 @@ export function ApprovalReviewPage({ employeeId }: { employeeId: string }) {
             <div className="editable-goal-table">
               {edits.map((goal, index) => (
                 <div key={goal.id}>
-                  <span>{member.goals[index].title}</span>
+                  <span>{sheet.goals[index]?.title}</span>
                   <input
                     aria-label="Target"
                     value={goal.target}
@@ -99,16 +212,16 @@ export function ApprovalReviewPage({ employeeId }: { employeeId: string }) {
             </label>
             <div className="review-actions">
               <Button
-                disabled={total !== 100}
-                onClick={() => toast.success(`${member.name}'s goals approved and locked.`)}
+                disabled={total !== 100 || sheet.status !== "submitted" || reviewMutation.isPending}
+                onClick={() => reviewMutation.mutate(true)}
                 type="button"
               >
                 <CheckCircle2 size={16} />
                 Approve
               </Button>
               <Button
-                disabled={remarks.trim().length < 10}
-                onClick={() => toast.error("Sheet returned for rework with remarks.")}
+                disabled={remarks.trim().length < 10 || sheet.status !== "submitted" || reviewMutation.isPending}
+                onClick={() => reviewMutation.mutate(false)}
                 type="button"
                 variant="secondary"
               >

@@ -1,18 +1,8 @@
 import { PrismaClient, Quarter, QuarterlyStatus, UomType } from "@prisma/client";
-import { hash } from "bcryptjs";
 import { computeProgressScore } from "../src/lib/scoring";
+import { adminAuth, type AtomQuestRole } from "../src/lib/firebase/admin";
 
 const prisma = new PrismaClient();
-
-const thrustAreas = [
-  { name: "Revenue Growth", colorHex: "#2563EB" },
-  { name: "Customer Satisfaction", colorHex: "#0F766E" },
-  { name: "Operational Excellence", colorHex: "#7C3AED" },
-  { name: "People Development", colorHex: "#C2410C" },
-  { name: "Innovation", colorHex: "#DB2777" },
-  { name: "Cost Optimization", colorHex: "#16A34A" },
-  { name: "Safety & Compliance", colorHex: "#DC2626" },
-];
 
 function date(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
@@ -29,9 +19,31 @@ function score(input: {
   return computeProgressScore(input);
 }
 
-async function main() {
-  const passwordHash = await hash("AtomQuest@123", 12);
+async function ensureFirebaseUser(input: {
+  name: string;
+  email: string;
+  password: string;
+  role: AtomQuestRole;
+  employeeCode: string;
+}) {
+  let user;
 
+  try {
+    user = await adminAuth.getUserByEmail(input.email);
+  } catch {
+    user = await adminAuth.createUser({
+      email: input.email,
+      password: input.password,
+      displayName: input.name,
+    });
+  }
+
+  await adminAuth.setCustomUserClaims(user.uid, { role: input.role });
+  console.log(`✓ ${input.employeeCode} created: ${input.email} -> ${user.uid}`);
+  return user.uid;
+}
+
+async function main() {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
       "audit_logs",
@@ -47,53 +59,144 @@ async function main() {
     RESTART IDENTITY CASCADE;
   `);
 
+  const adminUid = await ensureFirebaseUser({
+    name: "Ananya Krishnan",
+    email: "admin@atomquest.com",
+    password: "Admin@1234",
+    role: "admin",
+    employeeCode: "EMP-001",
+  });
+
   const admin = await prisma.user.create({
     data: {
+      name: "Ananya Krishnan",
       email: "admin@atomquest.com",
-      name: "Admin HR",
-      passwordHash,
+      firebaseUid: adminUid,
       role: "admin",
       department: "Human Resources",
-      designation: "HR Business Partner",
-      employeeCode: "AQ-ADM-001",
+      designation: "HR Manager",
+      employeeCode: "EMP-001",
     },
   });
 
-  const manager = await prisma.user.create({
+  const rajeshUid = await ensureFirebaseUser({
+    name: "Rajesh Kumar",
+    email: "manager@atomquest.com",
+    password: "Manager@1234",
+    role: "manager",
+    employeeCode: "EMP-002",
+  });
+
+  const rajesh = await prisma.user.create({
     data: {
-      email: "manager@atomquest.com",
       name: "Rajesh Kumar",
-      passwordHash,
+      email: "manager@atomquest.com",
+      firebaseUid: rajeshUid,
       role: "manager",
       department: "Operations",
-      designation: "L1 Manager",
-      employeeCode: "AQ-MGR-001",
+      designation: "Operations Manager",
+      employeeCode: "EMP-002",
     },
   });
 
-  const [priya, amit] = await Promise.all([
+  const sunitaUid = await ensureFirebaseUser({
+    name: "Sunita Mehta",
+    email: "manager2@atomquest.com",
+    password: "Manager@1234",
+    role: "manager",
+    employeeCode: "EMP-003",
+  });
+
+  const sunita = await prisma.user.create({
+    data: {
+      name: "Sunita Mehta",
+      email: "manager2@atomquest.com",
+      firebaseUid: sunitaUid,
+      role: "manager",
+      department: "Sales",
+      designation: "Sales Manager",
+      employeeCode: "EMP-003",
+    },
+  });
+
+  const [priyaUid, amitUid, nehaUid, arjunUid] = await Promise.all([
+    ensureFirebaseUser({
+      name: "Priya Sharma",
+      email: "emp1@atomquest.com",
+      password: "Employee@1234",
+      role: "employee",
+      employeeCode: "EMP-004",
+    }),
+    ensureFirebaseUser({
+      name: "Amit Verma",
+      email: "emp2@atomquest.com",
+      password: "Employee@1234",
+      role: "employee",
+      employeeCode: "EMP-005",
+    }),
+    ensureFirebaseUser({
+      name: "Neha Iyer",
+      email: "emp3@atomquest.com",
+      password: "Employee@1234",
+      role: "employee",
+      employeeCode: "EMP-006",
+    }),
+    ensureFirebaseUser({
+      name: "Arjun Patel",
+      email: "emp4@atomquest.com",
+      password: "Employee@1234",
+      role: "employee",
+      employeeCode: "EMP-007",
+    }),
+  ]);
+
+  const [priya, amit, neha, arjun] = await Promise.all([
     prisma.user.create({
       data: {
-        email: "emp1@atomquest.com",
         name: "Priya Sharma",
-        passwordHash,
+        email: "emp1@atomquest.com",
+        firebaseUid: priyaUid,
         role: "employee",
         department: "Operations",
-        designation: "Senior Associate",
-        employeeCode: "AQ-EMP-001",
-        managerId: manager.id,
+        designation: "Operations Analyst",
+        employeeCode: "EMP-004",
+        managerId: rajesh.id,
       },
     }),
     prisma.user.create({
       data: {
-        email: "emp2@atomquest.com",
         name: "Amit Verma",
-        passwordHash,
+        email: "emp2@atomquest.com",
+        firebaseUid: amitUid,
         role: "employee",
         department: "Operations",
-        designation: "Associate",
-        employeeCode: "AQ-EMP-002",
-        managerId: manager.id,
+        designation: "Process Coordinator",
+        employeeCode: "EMP-005",
+        managerId: rajesh.id,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        name: "Neha Iyer",
+        email: "emp3@atomquest.com",
+        firebaseUid: nehaUid,
+        role: "employee",
+        department: "Sales",
+        designation: "Sales Executive",
+        employeeCode: "EMP-006",
+        managerId: sunita.id,
+      },
+    }),
+    prisma.user.create({
+      data: {
+        name: "Arjun Patel",
+        email: "emp4@atomquest.com",
+        firebaseUid: arjunUid,
+        role: "employee",
+        department: "Sales",
+        designation: "Key Account Manager",
+        employeeCode: "EMP-007",
+        managerId: sunita.id,
       },
     }),
   ]);
@@ -111,32 +214,37 @@ async function main() {
     },
   });
 
-  const createdThrustAreas = await Promise.all(
-    thrustAreas.map((area) =>
+  const thrustAreas = await Promise.all(
+    [
+      ["Revenue Growth", "#22C55E"],
+      ["Customer Satisfaction", "#3B82F6"],
+      ["Operational Excellence", "#F59E0B"],
+      ["People Development", "#8B5CF6"],
+      ["Innovation", "#EC4899"],
+      ["Cost Optimization", "#14B8A6"],
+      ["Safety & Compliance", "#EF4444"],
+    ].map(([name, colorHex]) =>
       prisma.thrustArea.create({
         data: {
-          ...area,
+          name,
+          colorHex,
           createdBy: admin.id,
         },
       })
     )
   );
 
-  const thrustByName = new Map(
-    createdThrustAreas.map((area) => [area.name, area.id])
-  );
-
-  const now = new Date();
+  const thrust = new Map(thrustAreas.map((area) => [area.name, area.id]));
 
   const priyaSheet = await prisma.goalSheet.create({
     data: {
       employeeId: priya.id,
       cycleId: cycle.id,
       status: "locked",
-      submittedAt: now,
-      approvedAt: now,
-      approvedBy: manager.id,
-      lockedAt: now,
+      submittedAt: date("2025-05-20"),
+      approvedAt: date("2025-05-27"),
+      approvedBy: rajesh.id,
+      lockedAt: date("2025-05-27"),
       totalWeightage: 100,
     },
   });
@@ -145,265 +253,347 @@ async function main() {
     data: {
       employeeId: amit.id,
       cycleId: cycle.id,
-      status: "approved",
-      submittedAt: now,
-      approvedAt: now,
-      approvedBy: manager.id,
+      status: "submitted",
+      submittedAt: date("2025-05-29"),
       totalWeightage: 100,
     },
   });
 
-  const revenueGoal = await prisma.goal.create({
+  const nehaSheet = await prisma.goalSheet.create({
     data: {
-      sheetId: priyaSheet.id,
-      thrustAreaId: thrustByName.get("Revenue Growth")!,
-      title: "Grow enterprise renewal revenue",
-      description: "Increase renewal revenue from managed accounts.",
-      uomType: "min_numeric",
-      targetValue: 1200000,
-      weightage: 30,
-      isLocked: true,
-      displayOrder: 1,
+      employeeId: neha.id,
+      cycleId: cycle.id,
+      status: "returned",
+      submittedAt: date("2025-05-24"),
+      managerRemarks:
+        "Revenue goal target seems too conservative. Please revise to 15% growth minimum.",
+      totalWeightage: 75,
     },
   });
 
-  const csatGoal = await prisma.goal.create({
+  const arjunSheet = await prisma.goalSheet.create({
     data: {
-      sheetId: priyaSheet.id,
-      thrustAreaId: thrustByName.get("Customer Satisfaction")!,
-      title: "Maintain customer satisfaction score",
-      description: "Keep quarterly CSAT at or above target.",
-      uomType: "min_percent",
-      targetValue: 92,
-      weightage: 25,
-      isLocked: true,
-      displayOrder: 2,
+      employeeId: arjun.id,
+      cycleId: cycle.id,
+      status: "draft",
+      totalWeightage: 60,
     },
   });
 
-  const sharedParentGoal = await prisma.goal.create({
-    data: {
-      sheetId: priyaSheet.id,
-      thrustAreaId: thrustByName.get("Operational Excellence")!,
-      title: "Reduce average ticket turnaround time",
-      description: "Department-level KPI shared across the operations team.",
-      uomType: "max_numeric",
-      targetValue: 24,
-      weightage: 25,
-      isShared: true,
-      primaryOwnerId: priya.id,
-      isLocked: true,
-      displayOrder: 3,
-    },
-  });
-
-  const safetyGoal = await prisma.goal.create({
-    data: {
-      sheetId: priyaSheet.id,
-      thrustAreaId: thrustByName.get("Safety & Compliance")!,
-      title: "Zero critical compliance incidents",
-      description: "Avoid critical safety and compliance misses.",
-      uomType: "zero",
-      targetValue: 0,
-      weightage: 20,
-      isLocked: true,
-      displayOrder: 4,
-    },
-  });
-
-  const innovationGoal = await prisma.goal.create({
-    data: {
-      sheetId: amitSheet.id,
-      thrustAreaId: thrustByName.get("Innovation")!,
-      title: "Launch automation pilot",
-      description: "Complete rollout of one internal automation pilot.",
-      uomType: "timeline",
-      targetDate: date("2026-03-15"),
-      weightage: 30,
-      isLocked: false,
-      displayOrder: 1,
-    },
-  });
-
-  const qualityGoal = await prisma.goal.create({
-    data: {
-      sheetId: amitSheet.id,
-      thrustAreaId: thrustByName.get("Operational Excellence")!,
-      title: "Improve first-pass resolution",
-      description: "Raise first-pass resolution for assigned queues.",
-      uomType: "min_percent",
-      targetValue: 88,
-      weightage: 25,
-      isLocked: false,
-      displayOrder: 2,
-    },
-  });
-
-  const sharedChildGoal = await prisma.goal.create({
-    data: {
-      sheetId: amitSheet.id,
-      thrustAreaId: thrustByName.get("Operational Excellence")!,
-      title: "Reduce average ticket turnaround time",
-      description: "Read-only shared KPI; achievement follows the primary owner.",
-      uomType: "max_numeric",
-      targetValue: 24,
-      weightage: 25,
-      isShared: true,
-      sharedFromGoalId: sharedParentGoal.id,
-      primaryOwnerId: priya.id,
-      isLocked: false,
-      displayOrder: 3,
-    },
-  });
-
-  const peopleGoal = await prisma.goal.create({
-    data: {
-      sheetId: amitSheet.id,
-      thrustAreaId: thrustByName.get("People Development")!,
-      title: "Complete skill development plan",
-      description: "Finish assigned quarterly learning modules.",
-      uomType: "min_percent",
-      targetValue: 100,
-      weightage: 20,
-      isLocked: false,
-      displayOrder: 4,
-    },
-  });
+  const priyaGoals = await Promise.all([
+    prisma.goal.create({
+      data: {
+        sheetId: priyaSheet.id,
+        thrustAreaId: thrust.get("Operational Excellence")!,
+        title: "Increase quarterly process audit completion rate",
+        description: "Lift completion of scheduled process audits across operations pods.",
+        uomType: "min_percent",
+        targetValue: 95,
+        weightage: 30,
+        isLocked: true,
+        displayOrder: 1,
+      },
+    }),
+    prisma.goal.create({
+      data: {
+        sheetId: priyaSheet.id,
+        thrustAreaId: thrust.get("Customer Satisfaction")!,
+        title: "Reduce average ticket resolution TAT below 24 hours",
+        description: "Improve queue handling and escalation hygiene to reduce average TAT.",
+        uomType: "max_numeric",
+        targetValue: 24,
+        weightage: 25,
+        isLocked: true,
+        displayOrder: 2,
+      },
+    }),
+    prisma.goal.create({
+      data: {
+        sheetId: priyaSheet.id,
+        thrustAreaId: thrust.get("Safety & Compliance")!,
+        title: "Complete all mandatory compliance trainings",
+        description: "Complete assigned mandatory trainings with zero compliance misses.",
+        uomType: "zero",
+        targetValue: 0,
+        weightage: 20,
+        isLocked: true,
+        displayOrder: 3,
+      },
+    }),
+    prisma.goal.create({
+      data: {
+        sheetId: priyaSheet.id,
+        thrustAreaId: thrust.get("People Development")!,
+        title: "Mentor 2 junior team members through onboarding",
+        description: "Support new team members through structured onboarding rituals.",
+        uomType: "min_numeric",
+        targetValue: 2,
+        weightage: 15,
+        isLocked: true,
+        displayOrder: 4,
+      },
+    }),
+    prisma.goal.create({
+      data: {
+        sheetId: priyaSheet.id,
+        thrustAreaId: thrust.get("Innovation")!,
+        title: "Submit process improvement suggestion accepted by management",
+        description: "Identify and submit one accepted improvement suggestion.",
+        uomType: "min_numeric",
+        targetValue: 1,
+        weightage: 10,
+        isLocked: true,
+        displayOrder: 5,
+      },
+    }),
+  ]);
 
   await prisma.quarterlyUpdate.createMany({
     data: [
+      [priyaGoals[0], Quarter.Q1, 88, null, QuarterlyStatus.on_track],
+      [priyaGoals[0], Quarter.Q2, 92, null, QuarterlyStatus.on_track],
+      [priyaGoals[1], Quarter.Q1, 26, null, QuarterlyStatus.on_track],
+      [priyaGoals[1], Quarter.Q2, 21, null, QuarterlyStatus.completed],
+      [priyaGoals[2], Quarter.Q1, 0, true, QuarterlyStatus.completed],
+      [priyaGoals[2], Quarter.Q2, 0, true, QuarterlyStatus.completed],
+      [priyaGoals[3], Quarter.Q1, 1, null, QuarterlyStatus.on_track],
+      [priyaGoals[3], Quarter.Q2, 2, null, QuarterlyStatus.completed],
+      [priyaGoals[4], Quarter.Q1, 0, null, QuarterlyStatus.not_started],
+      [priyaGoals[4], Quarter.Q2, 1, null, QuarterlyStatus.completed],
+    ].map(([goal, quarter, actualValue, actualZero, status]) => ({
+      goalId: (goal as typeof priyaGoals[number]).id,
+      quarter: quarter as Quarter,
+      actualValue: actualValue as number,
+      actualZero: actualZero as boolean | null,
+      status: status as QuarterlyStatus,
+      computedScore: score({
+        uomType: (goal as typeof priyaGoals[number]).uomType,
+        targetValue: (goal as typeof priyaGoals[number]).targetValue?.toNumber() ?? null,
+        actualValue: actualValue as number,
+        actualZero: actualZero as boolean | null,
+      }),
+      employeeNotes: `${quarter} update recorded for demo data.`,
+    })),
+  });
+
+  await prisma.checkinComment.createMany({
+    data: [
       {
-        goalId: revenueGoal.id,
-        quarter: Quarter.Q1,
-        actualValue: 320000,
-        status: QuarterlyStatus.on_track,
-        computedScore: score({
-          uomType: "min_numeric",
-          targetValue: 1200000,
-          actualValue: 320000,
-        }),
-        employeeNotes: "Renewal pipeline is pacing ahead for Q1.",
+        sheetId: priyaSheet.id,
+        managerId: rajesh.id,
+        quarter: "Q1",
+        overallComment:
+          "Priya is doing well. TAT improvement is the standout achievement this quarter.",
+        keyObservations: "Strong compliance adherence. Mentoring goal needs acceleration.",
+        areasOfImprovement: "Process suggestion goal not started - needs a plan.",
+        supportRequired: "None at this stage - Priya is self-sufficient.",
+        checkinDate: date("2025-07-20"),
       },
       {
-        goalId: csatGoal.id,
-        quarter: Quarter.Q1,
-        actualValue: 94,
-        status: QuarterlyStatus.completed,
-        computedScore: score({
-          uomType: "min_percent",
-          targetValue: 92,
-          actualValue: 94,
-        }),
-        employeeNotes: "CSAT improved after faster escalation routing.",
-      },
-      {
-        goalId: sharedParentGoal.id,
-        quarter: Quarter.Q1,
-        actualValue: 22,
-        status: QuarterlyStatus.completed,
-        computedScore: score({
-          uomType: "max_numeric",
-          targetValue: 24,
-          actualValue: 22,
-        }),
-        employeeNotes: "Shared KPI source update from primary owner.",
-      },
-      {
-        goalId: sharedChildGoal.id,
-        quarter: Quarter.Q1,
-        actualValue: 22,
-        status: QuarterlyStatus.completed,
-        computedScore: score({
-          uomType: "max_numeric",
-          targetValue: 24,
-          actualValue: 22,
-        }),
-        employeeNotes: "Synced from Priya Sharma's primary shared KPI.",
-      },
-      {
-        goalId: safetyGoal.id,
-        quarter: Quarter.Q1,
-        actualValue: 0,
-        actualZero: true,
-        status: QuarterlyStatus.completed,
-        computedScore: score({
-          uomType: "zero",
-          actualValue: 0,
-          actualZero: true,
-        }),
-        employeeNotes: "No critical incidents reported.",
-      },
-      {
-        goalId: innovationGoal.id,
-        quarter: Quarter.Q1,
-        actualDate: date("2026-03-18"),
-        status: QuarterlyStatus.on_track,
-        computedScore: score({
-          uomType: "timeline",
-          targetDate: date("2026-03-15"),
-          actualDate: date("2026-03-18"),
-        }),
-        employeeNotes: "Pilot scope finalized; rollout dependency remains.",
-      },
-      {
-        goalId: qualityGoal.id,
-        quarter: Quarter.Q1,
-        actualValue: 81,
-        status: QuarterlyStatus.on_track,
-        computedScore: score({
-          uomType: "min_percent",
-          targetValue: 88,
-          actualValue: 81,
-        }),
-        employeeNotes: "Queue coaching started in week four.",
-      },
-      {
-        goalId: peopleGoal.id,
-        quarter: Quarter.Q1,
-        actualValue: 35,
-        status: QuarterlyStatus.on_track,
-        computedScore: score({
-          uomType: "min_percent",
-          targetValue: 100,
-          actualValue: 35,
-        }),
-        employeeNotes: "Two of six learning modules completed.",
+        sheetId: priyaSheet.id,
+        managerId: rajesh.id,
+        quarter: "Q2",
+        overallComment:
+          "Priya closed the improvement suggestion and has strong progress across all goals.",
+        keyObservations: "TAT and mentoring targets are now ahead of plan.",
+        areasOfImprovement: "Keep audit completion moving toward the 95% target.",
+        supportRequired: "No additional support required.",
+        checkinDate: date("2025-10-18"),
       },
     ],
   });
 
-  await prisma.checkinComment.create({
-    data: {
-      sheetId: priyaSheet.id,
-      managerId: manager.id,
-      quarter: Quarter.Q1,
-      overallComment:
-        "Strong start to the cycle with visible ownership on shared operations KPI.",
-      keyObservations:
-        "Revenue and CSAT are ahead of plan; shared TAT is already under target.",
-      areasOfImprovement:
-        "Document reusable playbooks for the turnaround-time improvement.",
-      supportRequired: "Support from analytics team for weekly KPI slicing.",
-    },
+  await prisma.goal.createMany({
+    data: [
+      {
+        sheetId: amitSheet.id,
+        thrustAreaId: thrust.get("Operational Excellence")!,
+        title: "Process documentation coverage for all critical workflows",
+        description: "Document all critical workflows and review them with stakeholders.",
+        uomType: "min_percent",
+        targetValue: 100,
+        weightage: 35,
+        displayOrder: 1,
+      },
+      {
+        sheetId: amitSheet.id,
+        thrustAreaId: thrust.get("Customer Satisfaction")!,
+        title: "Achieve 4.2+ satisfaction score on internal support surveys",
+        description: "Improve internal support quality through faster first response.",
+        uomType: "min_numeric",
+        targetValue: 4.2,
+        weightage: 30,
+        displayOrder: 2,
+      },
+      {
+        sheetId: amitSheet.id,
+        thrustAreaId: thrust.get("Safety & Compliance")!,
+        title: "Zero safety violations for FY 2025-26",
+        description: "Maintain clean safety and compliance adherence.",
+        uomType: "zero",
+        targetValue: 0,
+        weightage: 20,
+        displayOrder: 3,
+      },
+      {
+        sheetId: amitSheet.id,
+        thrustAreaId: thrust.get("People Development")!,
+        title: "Complete Advanced Excel certification",
+        description: "Complete certification before the September deadline.",
+        uomType: "timeline",
+        targetDate: date("2025-09-30"),
+        weightage: 15,
+        displayOrder: 4,
+      },
+      {
+        sheetId: nehaSheet.id,
+        thrustAreaId: thrust.get("Revenue Growth")!,
+        title: "Grow qualified sales pipeline by at least 12 percent",
+        description: "Returned for target revision to at least 15 percent growth.",
+        uomType: "min_percent",
+        targetValue: 12,
+        weightage: 30,
+        displayOrder: 1,
+      },
+      {
+        sheetId: nehaSheet.id,
+        thrustAreaId: thrust.get("Customer Satisfaction")!,
+        title: "Improve customer follow-up SLA adherence",
+        description: "Maintain consistent follow-up within committed timelines.",
+        uomType: "min_percent",
+        targetValue: 90,
+        weightage: 25,
+        displayOrder: 2,
+      },
+      {
+        sheetId: nehaSheet.id,
+        thrustAreaId: thrust.get("Innovation")!,
+        title: "Pilot one account expansion playbook",
+        description: "Test a repeatable playbook for strategic accounts.",
+        uomType: "min_numeric",
+        targetValue: 1,
+        weightage: 20,
+        displayOrder: 3,
+      },
+      {
+        sheetId: arjunSheet.id,
+        thrustAreaId: thrust.get("Revenue Growth")!,
+        title: "Expand revenue from top five key accounts",
+        description: "Build expansion plans for the highest potential accounts.",
+        uomType: "min_percent",
+        targetValue: 18,
+        weightage: 35,
+        displayOrder: 1,
+      },
+      {
+        sheetId: arjunSheet.id,
+        thrustAreaId: thrust.get("Cost Optimization")!,
+        title: "Reduce discount leakage on renewal opportunities",
+        description: "Improve pricing discipline on key renewal opportunities.",
+        uomType: "max_percent",
+        targetValue: 8,
+        weightage: 25,
+        displayOrder: 2,
+      },
+    ],
+  });
+
+  await prisma.auditLog.createMany({
+    data: [
+      {
+        entityType: "goal",
+        entityId: priyaGoals[4].id,
+        action: "goal_unlocked",
+        changedBy: admin.id,
+        changedByRole: "admin",
+        previousValue: { isLocked: true, uomType: "min_percent" },
+        newValue: { isLocked: false, uomType: "min_numeric" },
+        reason:
+          "Employee clarified the metric - adjusted from min_percent to min_numeric as advised by finance team.",
+        createdAt: date("2025-06-15"),
+      },
+      {
+        entityType: "user",
+        entityId: arjun.id,
+        action: "login_success",
+        changedBy: arjun.id,
+        changedByRole: "employee",
+        previousValue: { role: "employee" },
+        newValue: { role: "employee" },
+        reason: "Demo login audit entry for unchanged employee role.",
+        createdAt: date("2025-06-18"),
+      },
+      {
+        entityType: "goal_sheet",
+        entityId: nehaSheet.id,
+        action: "goal_returned",
+        changedBy: rajesh.id,
+        changedByRole: "manager",
+        previousValue: { status: "submitted" },
+        newValue: { status: "returned" },
+        reason: "Revenue target too conservative.",
+        createdAt: date("2025-05-28"),
+      },
+    ],
   });
 
   await prisma.notification.createMany({
     data: [
       {
-        recipientId: manager.id,
-        type: "goal_submitted",
-        title: "Priya Sharma submitted goals",
-        body: "Goal sheet is ready for manager review.",
+        recipientId: priya.id,
+        type: "goal_approved",
+        title: "Your goal sheet has been approved and locked",
+        isRead: true,
+        entityType: "goal_sheet",
+        entityId: priyaSheet.id,
+      },
+      {
+        recipientId: priya.id,
+        type: "checkin_comment_added",
+        title: "Rajesh Kumar completed Q1 check-in on your goals",
+        isRead: false,
         entityType: "goal_sheet",
         entityId: priyaSheet.id,
       },
       {
         recipientId: amit.id,
-        type: "shared_goal_received",
-        title: "Shared KPI added to your sheet",
-        body: "Reduce average ticket turnaround time was pushed by your manager.",
-        entityType: "goal",
-        entityId: sharedChildGoal.id,
+        type: "goal_submitted",
+        title: "Your goal sheet has been submitted to Rajesh Kumar for approval",
+        isRead: true,
+        entityType: "goal_sheet",
+        entityId: amitSheet.id,
+      },
+      {
+        recipientId: amit.id,
+        type: "reminder",
+        title: "Rajesh Kumar has not yet reviewed your submission. Reminder sent.",
+        isRead: false,
+        entityType: "goal_sheet",
+        entityId: amitSheet.id,
+      },
+      {
+        recipientId: neha.id,
+        type: "goal_returned",
+        title: "Your goal sheet was returned for rework. Reason: Revenue target too conservative.",
+        isRead: false,
+        entityType: "goal_sheet",
+        entityId: nehaSheet.id,
+      },
+      {
+        recipientId: rajesh.id,
+        type: "goal_submitted",
+        title: "Amit Verma submitted their goal sheet for your approval",
+        isRead: false,
+        entityType: "goal_sheet",
+        entityId: amitSheet.id,
+      },
+      {
+        recipientId: rajesh.id,
+        type: "goal_resubmitted",
+        title: "Neha Iyer has resubmitted their goal sheet",
+        isRead: true,
+        entityType: "goal_sheet",
+        entityId: nehaSheet.id,
       },
     ],
   });
@@ -414,36 +604,20 @@ async function main() {
         cycleId: cycle.id,
         triggerEvent: "goal_not_submitted",
         daysThreshold: 7,
-        notifyEmployee: true,
-        notifyManager: true,
-        notifyAdmin: false,
       },
       {
         cycleId: cycle.id,
         triggerEvent: "checkin_overdue",
         daysThreshold: 5,
-        notifyEmployee: false,
-        notifyManager: true,
         notifyAdmin: true,
       },
     ],
   });
 
-  await prisma.auditLog.create({
-    data: {
-      entityType: "goal_sheet",
-      entityId: priyaSheet.id,
-      action: "status_changed",
-      changedBy: manager.id,
-      changedByRole: "manager",
-      previousValue: { status: "approved" },
-      newValue: { status: "locked", lockedAt: now.toISOString() },
-      reason: "Manager approved and locked the FY 2025-26 goal sheet.",
-    },
-  });
-
-  console.log("Seeded AtomQuest demo database");
-  console.log("Demo password for all users: AtomQuest@123");
+  console.log("Seeded Nexus Corp demo data for AtomQuest");
+  console.log("Admin: admin@atomquest.com / Admin@1234");
+  console.log("Manager: manager@atomquest.com / Manager@1234");
+  console.log("Employee: emp1@atomquest.com / Employee@1234");
 }
 
 main()

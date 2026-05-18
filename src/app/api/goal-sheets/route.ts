@@ -77,7 +77,7 @@ export async function POST() {
   return route(async () => {
     const session = await requireSession();
     const activeCycle = await requireActiveCycle();
-    assertGoalSettingOpen(activeCycle.goalSettingOpens);
+    assertGoalSettingOpen(activeCycle);
 
     const existing = await prisma.goalSheet.findUnique({
       where: {

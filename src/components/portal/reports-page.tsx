@@ -1,55 +1,74 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bar, BarChart, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { useQuery } from "@tanstack/react-query";
+import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { utils, writeFile } from "xlsx";
 import { Download } from "lucide-react";
 import { toast } from "sonner";
-import { demoGoals, getAverageQuarterScore, quarters, teamMembers, thrustAreas, uomLabel } from "@/lib/portal-data";
 import { Button } from "@/components/ui/button";
-import { PortalCard, ScoreChip, StatusBadge } from "@/components/portal/portal-ui";
+import { PortalCard, ScoreChip, SkeletonBlock } from "@/components/portal/portal-ui";
 
 const reportTabs = ["Achievement Report", "Completion Dashboard", "Goal Distribution"];
 
+type AchievementRow = {
+  employee_name: string;
+  employee_code: string | null;
+  department: string | null;
+  goal_title: string;
+  thrust_area: string;
+  uom_type: string;
+  target: string;
+  q1_score: string;
+  q2_score: string;
+  q3_score: string;
+  q4_score: string;
+  weightage: string;
+};
+
+type CompletionData = {
+  goal_setting_completion: {
+    submitted: number;
+    approved: number;
+    pending: number;
+    not_started: number;
+  };
+  department_breakdown: Array<{ department: string; completion_percent: number; at_risk_goals: number }>;
+};
+
+async function fetchAchievement() {
+  const response = await fetch("/api/reports/achievement");
+  const payload = await response.json();
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message ?? "Unable to load achievement report");
+  }
+  return (payload.data?.rows ?? []) as AchievementRow[];
+}
+
+async function fetchCompletion() {
+  const response = await fetch("/api/reports/completion-dashboard");
+  const payload = await response.json();
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message ?? "Unable to load completion dashboard");
+  }
+  return payload.data as CompletionData;
+}
+
+function numericScore(value: string | number | null | undefined) {
+  if (value === "" || value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function ReportsPage() {
   const [activeTab, setActiveTab] = useState(reportTabs[0]);
-  const achievementRows = useMemo(
-    () =>
-      teamMembers.flatMap((member) =>
-        member.goals.map((goal) => ({
-          employee: member.name,
-          code: member.id.toUpperCase(),
-          department: member.department,
-          title: goal.title,
-          thrustArea: goal.thrustArea,
-          uom: uomLabel(goal.uomType),
-          target: goal.target,
-          weightage: `${goal.weightage}%`,
-          q1: goal.updates.Q1.actual,
-          q1Score: goal.updates.Q1.score,
-          q2: goal.updates.Q2.actual,
-          q2Score: goal.updates.Q2.score,
-          q3: goal.updates.Q3.actual,
-          q3Score: goal.updates.Q3.score,
-          q4: goal.updates.Q4.actual,
-          q4Score: goal.updates.Q4.score,
-        }))
-      ),
-    []
-  );
+  const achievementQuery = useQuery({ queryKey: ["reports", "achievement"], queryFn: fetchAchievement });
+  const completionQuery = useQuery({ queryKey: ["reports", "completion"], queryFn: fetchCompletion });
+  const achievementRows = achievementQuery.data ?? [];
+  const completion = completionQuery.data;
 
   function exportCsv() {
-    const header = Object.keys(achievementRows[0]).join(",");
-    const body = achievementRows
-      .map((row) => Object.values(row).map((value) => `"${String(value ?? "")}"`).join(","))
-      .join("\n");
-    const blob = new Blob([`${header}\n${body}`], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "atomquest-achievement-report.csv";
-    anchor.click();
-    URL.revokeObjectURL(url);
+    window.location.href = "/api/reports/achievement?format=csv";
     toast.success("CSV export prepared.");
   }
 
@@ -61,23 +80,29 @@ export function ReportsPage() {
     toast.success("Excel export prepared.");
   }
 
-  const distribution = thrustAreas.map((area) => ({
-    name: area.name,
-    value: demoGoals.filter((goal) => goal.thrustArea === area.name).length,
-    color: area.color,
-  })).filter((item) => item.value > 0);
-
-  const uomBreakdown = Object.entries(
-    demoGoals.reduce<Record<string, number>>((acc, goal) => {
-      acc[uomLabel(goal.uomType)] = (acc[uomLabel(goal.uomType)] ?? 0) + 1;
+  const distribution = useMemo(() => {
+    const counts = achievementRows.reduce<Record<string, number>>((acc, row) => {
+      acc[row.thrust_area] = (acc[row.thrust_area] ?? 0) + 1;
       return acc;
-    }, {})
-  ).map(([name, value]) => ({ name, value }));
+    }, {});
+    const colors = ["#2563EB", "#8B5CF6", "#22C55E", "#F59E0B", "#EC4899", "#14B8A6"];
+    return Object.entries(counts).map(([name, value], index) => ({
+      name,
+      value,
+      color: colors[index % colors.length],
+    }));
+  }, [achievementRows]);
 
-  const trendData = quarters.map((quarter) => ({
-    quarter,
-    score: getAverageQuarterScore(quarter) ?? 0,
-  }));
+  const uomBreakdown = useMemo(
+    () =>
+      Object.entries(
+        achievementRows.reduce<Record<string, number>>((acc, row) => {
+          acc[row.uom_type] = (acc[row.uom_type] ?? 0) + 1;
+          return acc;
+        }, {})
+      ).map(([name, value]) => ({ name, value })),
+    [achievementRows]
+  );
 
   return (
     <div className="portal-page">
@@ -104,36 +129,38 @@ export function ReportsPage() {
             <select><option>All quarters</option><option>Q1</option><option>Q2</option></select>
             <select><option>All departments</option></select>
             <Button onClick={exportCsv} variant="secondary"><Download size={16} />Export CSV</Button>
-            <Button onClick={exportExcel}><Download size={16} />Export Excel</Button>
+            <Button disabled={!achievementRows.length} onClick={exportExcel}><Download size={16} />Export Excel</Button>
           </div>
-          <div className="portal-table-wrap">
-            <table className="portal-table">
-              <thead>
-                <tr>
-                  <th>Employee</th>
-                  <th>Department</th>
-                  <th>Goal Title</th>
-                  <th>Target</th>
-                  <th>Q1 Score</th>
-                  <th>Q2 Score</th>
-                  <th>Weightage</th>
-                </tr>
-              </thead>
-              <tbody>
-                {achievementRows.slice(0, 12).map((row) => (
-                  <tr key={`${row.employee}-${row.title}`}>
-                    <td>{row.employee}</td>
-                    <td>{row.department}</td>
-                    <td><strong>{row.title}</strong><small>{row.thrustArea}</small></td>
-                    <td>{row.target}</td>
-                    <td><ScoreChip score={row.q1Score} /></td>
-                    <td><ScoreChip score={row.q2Score} /></td>
-                    <td>{row.weightage}</td>
+          {achievementQuery.isLoading ? <SkeletonBlock /> : (
+            <div className="portal-table-wrap">
+              <table className="portal-table">
+                <thead>
+                  <tr>
+                    <th>Employee</th>
+                    <th>Department</th>
+                    <th>Goal Title</th>
+                    <th>Target</th>
+                    <th>Q1 Score</th>
+                    <th>Q2 Score</th>
+                    <th>Weightage</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {achievementRows.slice(0, 20).map((row) => (
+                    <tr key={`${row.employee_name}-${row.goal_title}`}>
+                      <td>{row.employee_name}</td>
+                      <td>{row.department}</td>
+                      <td><strong>{row.goal_title}</strong><small>{row.thrust_area}</small></td>
+                      <td>{row.target}</td>
+                      <td><ScoreChip score={numericScore(row.q1_score)} /></td>
+                      <td><ScoreChip score={numericScore(row.q2_score)} /></td>
+                      <td>{row.weightage}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       ) : null}
 
@@ -141,35 +168,27 @@ export function ReportsPage() {
         <div className="reports-grid">
           <PortalCard className="report-summary-card">
             <span>Submitted</span>
-            <strong>18</strong>
+            <strong>{completion?.goal_setting_completion.submitted ?? 0}</strong>
           </PortalCard>
           <PortalCard className="report-summary-card">
             <span>Approved</span>
-            <strong>14</strong>
+            <strong>{completion?.goal_setting_completion.approved ?? 0}</strong>
           </PortalCard>
           <PortalCard className="report-summary-card">
             <span>Pending</span>
-            <strong>4</strong>
+            <strong>{completion?.goal_setting_completion.pending ?? 0}</strong>
           </PortalCard>
           <PortalCard className="report-summary-card">
             <span>Not started</span>
-            <strong>2</strong>
+            <strong>{completion?.goal_setting_completion.not_started ?? 0}</strong>
           </PortalCard>
           <PortalCard className="dashboard-card-full">
             <div className="completion-card-grid">
-              {teamMembers.map((member) => (
-                <article key={member.id}>
-                  <div className="avatar">{member.initials}</div>
-                  <strong>{member.name}</strong>
-                  <span>{member.department}</span>
-                  <StatusBadge status={member.status} />
-                  <div className="quarter-dots">
-                    {quarters.map((quarter) => (
-                      <span className={member.quarters[quarter] ? "is-done" : ""} key={quarter}>
-                        {quarter}
-                      </span>
-                    ))}
-                  </div>
+              {(completion?.department_breakdown ?? []).map((item) => (
+                <article key={item.department}>
+                  <strong>{item.department}</strong>
+                  <span>{item.completion_percent}% complete</span>
+                  <span>{item.at_risk_goals} at-risk goals</span>
                 </article>
               ))}
             </div>
@@ -199,17 +218,6 @@ export function ReportsPage() {
                 <Tooltip />
                 <Bar dataKey="value" fill="#2563EB" radius={[8, 8, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
-          </PortalCard>
-          <PortalCard className="dashboard-card-full">
-            <h3>QoQ average score trend</h3>
-            <ResponsiveContainer height={260} width="100%">
-              <LineChart data={trendData}>
-                <XAxis dataKey="quarter" />
-                <YAxis domain={[0, 150]} />
-                <Tooltip />
-                <Line dataKey="score" stroke="#8B5CF6" strokeWidth={3} type="monotone" />
-              </LineChart>
             </ResponsiveContainer>
           </PortalCard>
         </div>

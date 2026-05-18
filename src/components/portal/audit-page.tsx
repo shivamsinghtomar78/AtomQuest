@@ -1,12 +1,36 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Filter } from "lucide-react";
-import { auditEntries } from "@/lib/portal-data";
+import { EmptyState, SkeletonBlock } from "@/components/portal/portal-ui";
 import { cn } from "@/lib/utils";
 
+type AuditEntry = {
+  id: string;
+  action: string;
+  entityType: string;
+  reason: string | null;
+  previousValue: unknown;
+  newValue: unknown;
+  createdAt: string;
+  actor: { name: string; role: string };
+  readable_diff: Array<{ field: string; from: unknown; to: unknown }>;
+};
+
+async function fetchAudit() {
+  const response = await fetch("/api/reports/audit-trail");
+  const payload = await response.json();
+  if (!response.ok || payload.success === false) {
+    throw new Error(payload.message ?? "Unable to load audit log");
+  }
+  return (payload.data?.items ?? []) as AuditEntry[];
+}
+
 export function AuditPage() {
-  const [expanded, setExpanded] = useState<string | null>("audit-1");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const query = useQuery({ queryKey: ["audit-trail"], queryFn: fetchAudit });
+  const entries = query.data ?? [];
 
   return (
     <div className="portal-page">
@@ -28,34 +52,43 @@ export function AuditPage() {
         <input type="date" />
       </div>
 
-      <div className="audit-timeline">
-        {auditEntries.map((entry) => (
-          <article className={`audit-entry audit-${entry.tone}`} key={entry.id}>
-            <div className="audit-dot" />
-            <button onClick={() => setExpanded(expanded === entry.id ? null : entry.id)} type="button">
-              <div>
-                <span>{entry.action}</span>
-                <h3>{entry.summary}</h3>
-                <p>{entry.actor} changed {entry.entity}</p>
-                <time>{entry.timestamp}</time>
-              </div>
-              <ChevronDown className={cn(expanded === entry.id && "is-open")} size={18} />
-            </button>
-            {expanded === entry.id ? (
-              <div className="audit-diff">
+      {query.isLoading ? (
+        <SkeletonBlock />
+      ) : entries.length ? (
+        <div className="audit-timeline">
+          {entries.map((entry) => (
+            <article className="audit-entry audit-info" key={entry.id}>
+              <div className="audit-dot" />
+              <button onClick={() => setExpanded(expanded === entry.id ? null : entry.id)} type="button">
                 <div>
-                  <span>Previous value</span>
-                  <code>{entry.before}</code>
+                  <span>{entry.action}</span>
+                  <h3>{entry.reason ?? `${entry.entityType} updated`}</h3>
+                  <p>{entry.actor.name} changed {entry.entityType}</p>
+                  <time>{new Date(entry.createdAt).toLocaleString()}</time>
                 </div>
-                <div>
-                  <span>New value</span>
-                  <code>{entry.after}</code>
+                <ChevronDown className={cn(expanded === entry.id && "is-open")} size={18} />
+              </button>
+              {expanded === entry.id ? (
+                <div className="audit-diff">
+                  <div>
+                    <span>Previous value</span>
+                    <code>{JSON.stringify(entry.previousValue ?? {}, null, 2)}</code>
+                  </div>
+                  <div>
+                    <span>New value</span>
+                    <code>{JSON.stringify(entry.newValue ?? {}, null, 2)}</code>
+                  </div>
                 </div>
-              </div>
-            ) : null}
-          </article>
-        ))}
-      </div>
+              ) : null}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyState
+          description="No post-lock changes have been made in this cycle."
+          title="Clean audit log"
+        />
+      )}
     </div>
   );
 }

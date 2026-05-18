@@ -17,7 +17,8 @@ import {
   User,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { SocialLinks } from "@/components/marketing/static-page";
 
 const navItems = [
   { label: "Features", href: "#features", id: "features" },
@@ -188,28 +189,179 @@ const faqs = [
 
 function Counter({ target, suffix = "" }: { target: number; suffix?: string }) {
   const [value, setValue] = useState(0);
+  const ref = useRef<HTMLSpanElement | null>(null);
 
   useEffect(() => {
-    const duration = 1200;
-    const startedAt = performance.now();
+    const element = ref.current;
+    if (!element) return;
     let frame = 0;
 
-    function tick(time: number) {
-      const progress = Math.min((time - startedAt) / duration, 1);
-      setValue(Math.round(target * (1 - Math.pow(1 - progress, 3))));
-      if (progress < 1) frame = requestAnimationFrame(tick);
-    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
 
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+        const duration = 2000;
+        const startedAt = performance.now();
+        const easeOutExpo = (progress: number) =>
+          progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
+
+        function tick(time: number) {
+          const progress = Math.min((time - startedAt) / duration, 1);
+          if (progress >= 1) {
+            setValue(target);
+            return;
+          }
+
+          setValue(Math.round(easeOutExpo(progress) * target));
+          frame = requestAnimationFrame(tick);
+        }
+
+        frame = requestAnimationFrame(tick);
+        observer.unobserve(element);
+      },
+      { threshold: 0.3 }
+    );
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [target]);
 
   return (
-    <span>
+    <span ref={ref}>
       {value}
       {suffix}
     </span>
   );
+}
+
+function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="landing-modal-layer" role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
+      <button className="landing-modal-backdrop" aria-label="Close demo" onClick={onClose} type="button" />
+      <div className="demo-modal">
+        <div className="demo-modal-header">
+          <h2 id="demo-modal-title">AtomQuest Demo</h2>
+          <button aria-label="Close demo" onClick={onClose} type="button"><X size={18} /></button>
+        </div>
+        <div className="demo-modal-content">
+          <DashboardPreview />
+          <div className="demo-callouts">
+            <span>Bento dashboard</span>
+            <span>Goal cards</span>
+            <span>Check-in module</span>
+          </div>
+        </div>
+        <div className="demo-modal-footer">
+          <span>Ready to try it yourself?</span>
+          <Link className="hero-primary" href="/login">Sign In</Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContactModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose, open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="landing-modal-layer" role="dialog" aria-modal="true" aria-labelledby="contact-modal-title">
+      <button className="landing-modal-backdrop" aria-label="Close contact form" onClick={onClose} type="button" />
+      <form
+        className="contact-modal"
+        onSubmit={(event) => {
+          event.preventDefault();
+          setSubmitted(true);
+        }}
+      >
+        <div className="demo-modal-header">
+          <h2 id="contact-modal-title">Request a Demo</h2>
+          <button aria-label="Close contact form" onClick={onClose} type="button"><X size={18} /></button>
+        </div>
+        {submitted ? (
+          <div className="contact-success">
+            <strong>Thanks, we&apos;ll reach out within 24 hours.</strong>
+            <p>We have the essentials and will follow up with a short walkthrough.</p>
+            <ButtonLike onClick={onClose}>Close</ButtonLike>
+          </div>
+        ) : (
+          <div className="contact-fields">
+            <label>
+              <span>Name</span>
+              <input required name="name" placeholder="Your name" />
+            </label>
+            <label>
+              <span>Company Email</span>
+              <input required name="email" type="email" placeholder="you@company.com" />
+            </label>
+            <label>
+              <span>Team Size</span>
+              <select required name="team-size" defaultValue="">
+                <option value="" disabled>Select team size</option>
+                <option>1-25</option>
+                <option>26-100</option>
+                <option>101-500</option>
+                <option>500+</option>
+              </select>
+            </label>
+            <button className="hero-primary" type="submit">Request Demo</button>
+          </div>
+        )}
+      </form>
+    </div>
+  );
+}
+
+function ButtonLike({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button className="hero-primary" onClick={onClick} type="button">
+      {children}
+    </button>
+  );
+}
+
+function footerHref(label: string) {
+  const hrefs: Record<string, string> = {
+    Features: "/#features",
+    Roles: "/#roles",
+    Pricing: "/#pricing",
+    "How It Works": "/#how-it-works",
+    FAQ: "/#faq",
+    About: "/about",
+    Blog: "/blog",
+    Careers: "/careers",
+    Privacy: "/privacy",
+    Terms: "/terms",
+    Cookies: "/cookies",
+  };
+  return hrefs[label] ?? "/";
 }
 
 function FeatureVisual({ type }: { type: string }) {
@@ -367,6 +519,8 @@ export function LandingPage() {
   const [activeSection, setActiveSection] = useState("features");
   const [openFaq, setOpenFaq] = useState(0);
   const [cursor, setCursor] = useState({ x: -200, y: -200 });
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [contactOpen, setContactOpen] = useState(false);
   const { scrollYProgress } = useScroll();
   const progressWidth = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
 
@@ -375,15 +529,17 @@ export function LandingPage() {
       headlineWords.map((word, index) => {
         const gradient = index >= headlineWords.length - 3;
         return (
-          <motion.span
-            className={gradient ? "gradient-word" : undefined}
-            initial={{ opacity: 0, y: 24 }}
-            key={`${word}-${index}`}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 + index * 0.06, duration: 0.55 }}
-          >
-            {word}
-          </motion.span>
+          <Fragment key={`${word}-${index}`}>
+            <motion.span
+              className={gradient ? "gradient-word" : undefined}
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 + index * 0.06, duration: 0.55 }}
+            >
+              {word}
+            </motion.span>
+            {index < headlineWords.length - 1 ? " " : null}
+          </Fragment>
         );
       }),
     []
@@ -515,9 +671,9 @@ export function LandingPage() {
             <Link className="hero-primary" href="/login">
               Start tracking goals <ArrowRight size={18} />
             </Link>
-            <a className="hero-secondary" href="#features">
-              View live demo
-            </a>
+            <button className="hero-secondary" onClick={() => setDemoOpen(true)} type="button">
+              Watch 90s demo
+            </button>
           </motion.div>
           <motion.p
             animate={{ opacity: 1 }}
@@ -533,7 +689,7 @@ export function LandingPage() {
 
       <section className="stats-strip" aria-label="AtomQuest metrics">
         <div><strong><Counter target={500} suffix="+" /></strong><span>teams aligned</span></div>
-        <div><strong><Counter target={8} /></strong><span>goals per employee</span></div>
+        <div><strong><Counter target={8} /></strong><span>goals per employee max</span></div>
         <div><strong><Counter target={4} /></strong><span>quarterly check-ins</span></div>
         <div><strong><Counter target={100} suffix="%" /></strong><span>weightage validation</span></div>
       </section>
@@ -648,6 +804,30 @@ export function LandingPage() {
         </div>
       </section>
 
+      <section className="section-band pricing-band" id="pricing">
+        <div className="section-heading">
+          <span>Pricing</span>
+          <h2>Simple demo pricing for teams ready to pilot</h2>
+          <p>Start with the hackathon workspace, then scale into governed cycles when your team is ready.</p>
+        </div>
+        <div className="pricing-grid">
+          {[
+            ["Starter", "Free", "For hackathon reviewers and small pilot teams."],
+            ["Team", "Contact us", "For managers running quarterly goal cycles."],
+            ["Enterprise", "Custom", "For HR teams needing reports, audit, and admin controls."],
+          ].map(([name, price, text]) => (
+            <article key={name}>
+              <span>{name}</span>
+              <strong>{price}</strong>
+              <p>{text}</p>
+              <button className="hero-secondary" onClick={() => setContactOpen(true)} type="button">
+                Request demo
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+
       <section className="cta-band">
         <div className="cta-banner">
           <Gauge size={34} />
@@ -655,7 +835,7 @@ export function LandingPage() {
           <p>Set up your first goal cycle in under 5 minutes.</p>
           <div>
             <Link className="hero-primary" href="/login">Get started free</Link>
-            <a className="hero-secondary" href="mailto:demo@atomquest.com">Request a demo</a>
+            <button className="hero-secondary" onClick={() => setContactOpen(true)} type="button">Request a demo</button>
           </div>
         </div>
       </section>
@@ -664,21 +844,28 @@ export function LandingPage() {
         <div>
           <div className="landing-logo"><span>Atom</span>Quest</div>
           <p>Structured goals, cleaner check-ins, and governance that holds up.</p>
+          <SocialLinks />
         </div>
         {[
-          ["Product", "Features", "Roles", "Pricing"],
-          ["Company", "About", "Blog", "Careers"],
-          ["Legal", "Privacy", "Terms"],
+          ["Product", "Features", "Roles", "How It Works", "FAQ", "Pricing"],
+          ["Company", "About", "Blog", "Careers", "Contact"],
+          ["Legal", "Privacy", "Terms", "Cookies"],
         ].map(([title, ...links]) => (
           <div className="footer-column" key={title}>
             <strong>{title}</strong>
             {links.map((item) => (
-              <a href="#features" key={item}>{item}</a>
+              item === "Contact" ? (
+                <button onClick={() => setContactOpen(true)} type="button" key={item}>{item}</button>
+              ) : (
+                <Link href={footerHref(item)} key={item}>{item}</Link>
+              )
             ))}
           </div>
         ))}
         <div className="footer-bottom">© 2026 AtomQuest · Built for AtomQuest Hackathon 1.0</div>
       </footer>
+      <DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} />
+      <ContactModal open={contactOpen} onClose={() => setContactOpen(false)} />
     </main>
   );
 }

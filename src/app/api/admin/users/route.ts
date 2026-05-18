@@ -1,10 +1,10 @@
 import type { Prisma } from "@prisma/client";
-import { hash } from "bcryptjs";
 import { NextRequest } from "next/server";
 import { requireRole, requireSession } from "@/lib/api/auth";
 import { created, ok, route } from "@/lib/api/response";
 import { paginationSchema, roleSchema, userCreateSchema } from "@/lib/api/schemas";
 import { prisma } from "@/lib/prisma";
+import { adminAuth } from "@/lib/firebase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -64,12 +64,25 @@ export async function POST(request: NextRequest) {
     const session = await requireSession();
     requireRole(session, ["admin"]);
     const body = userCreateSchema.parse(await request.json());
+    let firebaseUser;
+
+    try {
+      firebaseUser = await adminAuth.getUserByEmail(body.email);
+    } catch {
+      firebaseUser = await adminAuth.createUser({
+        email: body.email,
+        password: body.password,
+        displayName: body.name,
+      });
+    }
+
+    await adminAuth.setCustomUserClaims(firebaseUser.uid, { role: body.role });
 
     const user = await prisma.user.create({
       data: {
         email: body.email,
         name: body.name,
-        passwordHash: await hash(body.password, 12),
+        firebaseUid: firebaseUser.uid,
         role: body.role,
         department: body.department,
         designation: body.designation,

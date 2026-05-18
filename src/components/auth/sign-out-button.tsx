@@ -1,11 +1,18 @@
 "use client";
 
-import { signOut } from "next-auth/react";
+import { signOut } from "firebase/auth";
+import { useRouter } from "next/navigation";
+import { getFirebaseClient } from "@/lib/firebase/client";
 
 export function SignOutButton() {
+  const router = useRouter();
+
   async function handleSignOut() {
     localStorage.clear();
-    await signOut({ callbackUrl: "/login" });
+    await signOut(getFirebaseClient().auth).catch(() => undefined);
+    await fetch("/api/auth/session", { method: "DELETE" }).catch(() => undefined);
+    router.replace("/login");
+    router.refresh();
   }
 
   return (

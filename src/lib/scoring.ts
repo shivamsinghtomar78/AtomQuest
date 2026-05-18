@@ -53,7 +53,7 @@ export function computeProgressScore(input: ProgressScoreInput): number | null {
       return null;
     }
 
-    return roundScore((target / actual) * 100);
+    return roundScore(Math.min((target / actual) * 100, MAX_TRACKING_SCORE));
   }
 
   if (input.uomType === "timeline") {
@@ -62,8 +62,8 @@ export function computeProgressScore(input: ProgressScoreInput): number | null {
     if (targetTime === null || actualTime === null) return null;
     if (actualTime <= targetTime) return 100;
 
-    const lateDays = Math.ceil((actualTime - targetTime) / 86_400_000);
-    return Math.max(0, 100 - lateDays * 10);
+    const lateDays = Math.floor((actualTime - targetTime) / 86_400_000);
+    return Math.max(0, 100 - lateDays * 5);
   }
 
   if (input.uomType === "zero") {

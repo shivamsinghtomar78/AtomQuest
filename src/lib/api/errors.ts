@@ -1,11 +1,13 @@
 export class ApiError extends Error {
   status: number;
+  code: string;
   details?: unknown;
 
-  constructor(status: number, message: string, details?: unknown) {
+  constructor(status: number, message: string, details?: unknown, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code ?? message;
     this.details = details;
   }
 }
@@ -24,4 +26,8 @@ export function forbidden(message = "Forbidden") {
 
 export function notFound(message = "Not found") {
   return new ApiError(404, message);
+}
+
+export function windowClosed(message: string, details?: unknown) {
+  return new ApiError(403, message, details, "WINDOW_CLOSED");
 }
