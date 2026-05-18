@@ -1,42 +1,20 @@
-import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
-import { adminAuth, normalizeFirebaseRole } from "@/lib/firebase/admin";
-import { forbidden, unauthorized } from "./errors";
+import { forbidden } from "./errors";
 import type { PortalRole, PortalSession } from "@/lib/auth-types";
 
 export type ApiSession = PortalSession;
 
-async function resolveFirebaseIdentity() {
-  const cookieStore = await cookies();
-  const sessionCookie = cookieStore.get("__session")?.value;
-  if (!sessionCookie) throw unauthorized();
-
-  try {
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    return {
-      uid: decoded.uid,
-      role: normalizeFirebaseRole(decoded.role),
-      email: decoded.email ?? "",
-    };
-  } catch {
-    throw unauthorized("Session expired");
-  }
-}
+const LOCAL_ADMIN_EMAIL = "local-admin@atomquest.internal";
 
 export async function requireSession(): Promise<ApiSession> {
-  const identity = await resolveFirebaseIdentity();
-
-  const user = await prisma.user.findFirst({
+  const existingAdmin = await prisma.user.findFirst({
     where: {
-      OR: [
-        { firebaseUid: identity.uid },
-        ...(identity.email ? [{ email: identity.email.toLowerCase() }] : []),
-      ],
       isActive: true,
+      role: "admin",
     },
+    orderBy: { createdAt: "asc" },
     select: {
       id: true,
-      firebaseUid: true,
       email: true,
       name: true,
       role: true,
@@ -46,19 +24,35 @@ export async function requireSession(): Promise<ApiSession> {
     },
   });
 
-  if (!user) throw unauthorized("User profile not found");
-
-  if (!user.firebaseUid) {
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { firebaseUid: identity.uid },
-    });
-  }
+  const user =
+    existingAdmin ??
+    (await prisma.user.upsert({
+      where: { email: LOCAL_ADMIN_EMAIL },
+      update: {
+        isActive: true,
+        role: "admin",
+      },
+      create: {
+        email: LOCAL_ADMIN_EMAIL,
+        name: "AtomQuest Admin",
+        role: "admin",
+        department: "Workspace",
+        designation: "Local Administrator",
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        department: true,
+        designation: true,
+        managerId: true,
+      },
+    }));
 
   return {
     user: {
       id: user.id,
-      firebaseUid: user.firebaseUid ?? identity.uid,
       email: user.email,
       name: user.name,
       role: user.role,

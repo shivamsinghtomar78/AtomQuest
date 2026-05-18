@@ -65,7 +65,6 @@ model User {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email        String   @unique @db.VarChar(255)
   name         String   @db.VarChar(255)
-  firebaseUid  String?  @unique @map("firebase_uid") @db.VarChar(128)
   role         UserRole @default(employee)
   department   String?  @db.VarChar(255)
   designation  String?  @db.VarChar(255)

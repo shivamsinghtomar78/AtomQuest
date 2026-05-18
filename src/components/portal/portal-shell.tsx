@@ -1,6 +1,5 @@
 "use client";
 
-import { signOut as firebaseSignOut } from "firebase/auth";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ReactNode, useEffect } from "react";
@@ -15,7 +14,6 @@ import {
   Gauge,
   History,
   LayoutDashboard,
-  LogOut,
   Menu,
   Moon,
   PanelLeftClose,
@@ -31,7 +29,6 @@ import { PortalQueryProvider } from "@/components/portal/query-provider";
 import { getPortalUser, type PortalRole } from "@/lib/portal-data";
 import { usePortalStore } from "@/store/portal-store";
 import { cn } from "@/lib/utils";
-import { getFirebaseClient } from "@/lib/firebase/client";
 import type { PortalSession } from "@/lib/auth-types";
 import { apiJson } from "@/lib/api/client";
 
@@ -173,16 +170,6 @@ function notificationHref(item: NotificationRecord, role: PortalRole) {
   return "/notifications";
 }
 
-async function signOutEverywhere() {
-  try {
-    await firebaseSignOut(getFirebaseClient().auth);
-  } catch {
-    // Continue with app session cleanup even if Firebase is already signed out.
-  }
-
-  await fetch("/api/auth/session", { method: "DELETE" }).catch(() => undefined);
-}
-
 export function PortalShell({
   children,
   session,
@@ -205,7 +192,6 @@ function PortalShellContent({
   session: PortalSession | null;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const queryClient = useQueryClient();
   const user = getPortalUser(session);
   const sidebarOpen = usePortalStore((state) => state.sidebarOpen);
@@ -313,17 +299,9 @@ function PortalShellContent({
             >
               <Moon size={16} />
             </button>
-            <button
-              aria-label="Sign out"
-              onClick={async () => {
-                await signOutEverywhere();
-                router.replace("/login");
-                router.refresh();
-              }}
-              type="button"
-            >
-              <LogOut size={16} />
-            </button>
+            <Link aria-label="Profile" href="/profile">
+              <User size={16} />
+            </Link>
           </div>
         </div>
       </aside>
@@ -360,17 +338,9 @@ function PortalShellContent({
               <Bell size={18} />
               {unreadQuery.data ? <span>{unreadQuery.data > 9 ? "9+" : unreadQuery.data}</span> : null}
             </button>
-            <button
-              className="topbar-avatar"
-              onClick={async () => {
-                await signOutEverywhere();
-                router.replace("/login");
-                router.refresh();
-              }}
-              type="button"
-            >
+            <Link className="topbar-avatar" href="/profile">
               {user.initials}
-            </button>
+            </Link>
           </div>
         </header>
 

@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 import { requireSession } from "@/lib/api/auth";
 import { ok, route } from "@/lib/api/response";
 import { profilePatchSchema } from "@/lib/api/schemas";
-import { adminAuth } from "@/lib/firebase/admin";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +15,6 @@ export async function PATCH(request: NextRequest) {
       where: { id: session.user.id },
       select: {
         id: true,
-        firebaseUid: true,
         name: true,
         department: true,
         designation: true,
@@ -40,10 +38,6 @@ export async function PATCH(request: NextRequest) {
         managerId: true,
       },
     });
-
-    if (body.name !== undefined && existing.firebaseUid) {
-      await adminAuth.updateUser(existing.firebaseUid, { displayName: body.name });
-    }
 
     await prisma.auditLog.create({
       data: {

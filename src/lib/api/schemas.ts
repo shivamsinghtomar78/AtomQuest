@@ -225,7 +225,6 @@ export const thrustAreaPatchSchema = thrustAreaCreateSchema.partial().extend({
 export const userCreateSchema = z.object({
   email: z.string().email().trim().toLowerCase(),
   name: z.string().trim().min(2).max(255),
-  password: z.string().min(8).optional().default("AtomQuest@123"),
   role: roleSchema.default("employee"),
   department: z.string().trim().max(255).optional().nullable(),
   designation: z.string().trim().max(255).optional().nullable(),

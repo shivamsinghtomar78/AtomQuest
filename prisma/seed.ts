@@ -1,6 +1,5 @@
 import { PrismaClient, Quarter, QuarterlyStatus, UomType } from "@prisma/client";
 import { computeProgressScore } from "../src/lib/scoring";
-import { adminAuth, type AtomQuestRole } from "../src/lib/firebase/admin";
 
 const prisma = new PrismaClient();
 
@@ -19,30 +18,6 @@ function score(input: {
   return computeProgressScore(input);
 }
 
-async function ensureFirebaseUser(input: {
-  name: string;
-  email: string;
-  password: string;
-  role: AtomQuestRole;
-  employeeCode: string;
-}) {
-  let user;
-
-  try {
-    user = await adminAuth.getUserByEmail(input.email);
-  } catch {
-    user = await adminAuth.createUser({
-      email: input.email,
-      password: input.password,
-      displayName: input.name,
-    });
-  }
-
-  await adminAuth.setCustomUserClaims(user.uid, { role: input.role });
-  console.log(`✓ ${input.employeeCode} created: ${input.email} -> ${user.uid}`);
-  return user.uid;
-}
-
 async function main() {
   await prisma.$executeRawUnsafe(`
     TRUNCATE TABLE
@@ -59,19 +34,10 @@ async function main() {
     RESTART IDENTITY CASCADE;
   `);
 
-  const adminUid = await ensureFirebaseUser({
-    name: "Ananya Krishnan",
-    email: "admin@atomquest.com",
-    password: "Admin@1234",
-    role: "admin",
-    employeeCode: "EMP-001",
-  });
-
   const admin = await prisma.user.create({
     data: {
       name: "Ananya Krishnan",
       email: "admin@atomquest.com",
-      firebaseUid: adminUid,
       role: "admin",
       department: "Human Resources",
       designation: "HR Manager",
@@ -79,19 +45,10 @@ async function main() {
     },
   });
 
-  const rajeshUid = await ensureFirebaseUser({
-    name: "Rajesh Kumar",
-    email: "manager@atomquest.com",
-    password: "Manager@1234",
-    role: "manager",
-    employeeCode: "EMP-002",
-  });
-
   const rajesh = await prisma.user.create({
     data: {
       name: "Rajesh Kumar",
       email: "manager@atomquest.com",
-      firebaseUid: rajeshUid,
       role: "manager",
       department: "Operations",
       designation: "Operations Manager",
@@ -99,19 +56,10 @@ async function main() {
     },
   });
 
-  const sunitaUid = await ensureFirebaseUser({
-    name: "Sunita Mehta",
-    email: "manager2@atomquest.com",
-    password: "Manager@1234",
-    role: "manager",
-    employeeCode: "EMP-003",
-  });
-
   const sunita = await prisma.user.create({
     data: {
       name: "Sunita Mehta",
       email: "manager2@atomquest.com",
-      firebaseUid: sunitaUid,
       role: "manager",
       department: "Sales",
       designation: "Sales Manager",
@@ -119,43 +67,11 @@ async function main() {
     },
   });
 
-  const [priyaUid, amitUid, nehaUid, arjunUid] = await Promise.all([
-    ensureFirebaseUser({
-      name: "Priya Sharma",
-      email: "emp1@atomquest.com",
-      password: "Employee@1234",
-      role: "employee",
-      employeeCode: "EMP-004",
-    }),
-    ensureFirebaseUser({
-      name: "Amit Verma",
-      email: "emp2@atomquest.com",
-      password: "Employee@1234",
-      role: "employee",
-      employeeCode: "EMP-005",
-    }),
-    ensureFirebaseUser({
-      name: "Neha Iyer",
-      email: "emp3@atomquest.com",
-      password: "Employee@1234",
-      role: "employee",
-      employeeCode: "EMP-006",
-    }),
-    ensureFirebaseUser({
-      name: "Arjun Patel",
-      email: "emp4@atomquest.com",
-      password: "Employee@1234",
-      role: "employee",
-      employeeCode: "EMP-007",
-    }),
-  ]);
-
   const [priya, amit, neha, arjun] = await Promise.all([
     prisma.user.create({
       data: {
         name: "Priya Sharma",
         email: "emp1@atomquest.com",
-        firebaseUid: priyaUid,
         role: "employee",
         department: "Operations",
         designation: "Operations Analyst",
@@ -167,7 +83,6 @@ async function main() {
       data: {
         name: "Amit Verma",
         email: "emp2@atomquest.com",
-        firebaseUid: amitUid,
         role: "employee",
         department: "Operations",
         designation: "Process Coordinator",
@@ -179,7 +94,6 @@ async function main() {
       data: {
         name: "Neha Iyer",
         email: "emp3@atomquest.com",
-        firebaseUid: nehaUid,
         role: "employee",
         department: "Sales",
         designation: "Sales Executive",
@@ -191,7 +105,6 @@ async function main() {
       data: {
         name: "Arjun Patel",
         email: "emp4@atomquest.com",
-        firebaseUid: arjunUid,
         role: "employee",
         department: "Sales",
         designation: "Key Account Manager",
@@ -615,9 +528,7 @@ async function main() {
   });
 
   console.log("Seeded Nexus Corp demo data for AtomQuest");
-  console.log("Admin: admin@atomquest.com / Admin@1234");
-  console.log("Manager: manager@atomquest.com / Manager@1234");
-  console.log("Employee: emp1@atomquest.com / Employee@1234");
+  console.log("Authentication is disabled; open /dashboard to use the workspace.");
 }
 
 main()

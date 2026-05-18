@@ -63,7 +63,6 @@ const emptyCycleForm = {
 const emptyUserForm = {
   name: "",
   email: "",
-  password: "AtomQuest@123",
   role: "employee" as Role,
   department: "",
   designation: "",
@@ -194,7 +193,6 @@ export function AdminPanelPage({ initialTab }: { initialTab?: string }) {
       apiJson<UserRow>("/api/admin/users", jsonRequest("POST", {
         email: userForm.email,
         name: userForm.name,
-        password: userForm.password,
         role: userForm.role,
         department: userForm.department || null,
         designation: userForm.designation || null,
@@ -261,7 +259,7 @@ export function AdminPanelPage({ initialTab }: { initialTab?: string }) {
   });
 
   const userReady = useMemo(
-    () => userForm.name.trim().length >= 2 && userForm.email.includes("@") && userForm.password.length >= 8,
+    () => userForm.name.trim().length >= 2 && userForm.email.includes("@"),
     [userForm]
   );
 
@@ -346,7 +344,6 @@ export function AdminPanelPage({ initialTab }: { initialTab?: string }) {
             <div className="admin-form-grid">
               <label className="form-field"><span>Name</span><input value={userForm.name} onChange={(event) => setUserForm({ ...userForm, name: event.target.value })} /></label>
               <label className="form-field"><span>Email</span><input value={userForm.email} onChange={(event) => setUserForm({ ...userForm, email: event.target.value })} type="email" /></label>
-              <label className="form-field"><span>Temporary password</span><input value={userForm.password} onChange={(event) => setUserForm({ ...userForm, password: event.target.value })} type="password" /></label>
               <label className="form-field"><span>Role</span><select value={userForm.role} onChange={(event) => setUserForm({ ...userForm, role: event.target.value as Role })}><option value="employee">Employee</option><option value="manager">Manager</option><option value="admin">Admin</option></select></label>
               <label className="form-field"><span>Department</span><input value={userForm.department} onChange={(event) => setUserForm({ ...userForm, department: event.target.value })} /></label>
               <label className="form-field"><span>Designation</span><input value={userForm.designation} onChange={(event) => setUserForm({ ...userForm, designation: event.target.value })} /></label>

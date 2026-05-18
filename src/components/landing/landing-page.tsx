@@ -269,7 +269,7 @@ function DemoModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
         <div className="demo-modal-footer">
           <span>Ready to try it yourself?</span>
-          <Link className="hero-primary" href="/login">Sign In</Link>
+          <Link className="hero-primary" href="/dashboard">Open Dashboard</Link>
         </div>
       </div>
     </div>
@@ -612,8 +612,8 @@ export function LandingPage() {
         </nav>
 
         <div className="nav-actions">
-          <Link className="signin-link" href="/login">Sign In</Link>
-          <Link className="nav-cta" href="/signup">Get Started</Link>
+          <Link className="signin-link" href="/dashboard">Dashboard</Link>
+          <Link className="nav-cta" href="/dashboard">Get Started</Link>
           <button
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             className={`menu-button ${menuOpen ? "is-open" : ""}`}
@@ -637,7 +637,7 @@ export function LandingPage() {
               {item.label}
             </a>
           ))}
-          <Link href="/login">Sign In</Link>
+          <Link href="/dashboard">Dashboard</Link>
         </motion.div>
       ) : null}
 
@@ -668,7 +668,7 @@ export function LandingPage() {
             initial={{ opacity: 0, scale: 0.97 }}
             transition={{ delay: 0.9, duration: 0.45 }}
           >
-            <Link className="hero-primary" href="/login">
+            <Link className="hero-primary" href="/dashboard">
               Start tracking goals <ArrowRight size={18} />
             </Link>
             <button className="hero-secondary" onClick={() => setDemoOpen(true)} type="button">
@@ -834,7 +834,7 @@ export function LandingPage() {
           <h2>Ready to align your team&apos;s goals?</h2>
           <p>Set up your first goal cycle in under 5 minutes.</p>
           <div>
-            <Link className="hero-primary" href="/signup">Get started free</Link>
+            <Link className="hero-primary" href="/dashboard">Get started free</Link>
             <button className="hero-secondary" onClick={() => setContactOpen(true)} type="button">Request a demo</button>
           </div>
         </div>

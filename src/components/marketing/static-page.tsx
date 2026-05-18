@@ -95,7 +95,7 @@ function MarketingNav({ onContact }: { onContact: () => void }) {
         <Link href="/#how-it-works">How It Works</Link>
         <Link href="/#pricing">Pricing</Link>
         <button type="button" onClick={onContact}>Contact</button>
-        <Link href="/login">Sign In</Link>
+        <Link href="/dashboard">Dashboard</Link>
       </nav>
     </header>
   );
@@ -242,7 +242,7 @@ export function PolicyPageContent({ type }: { type: "privacy" | "terms" | "cooki
           ? "How this demo SaaS app handles account, goal, and usage data."
           : isTerms
             ? "The basic terms for using the AtomQuest demo workspace."
-            : "How AtomQuest may use essential cookies for authentication and app preferences."
+            : "How AtomQuest may use essential cookies for app preferences."
       }
     >
       <div className="static-prose">
@@ -251,9 +251,9 @@ export function PolicyPageContent({ type }: { type: "privacy" | "terms" | "cooki
             <h2>Data Collected</h2>
             <p>AtomQuest stores user profiles, role information, goal sheets, quarterly updates, manager comments, notifications, and audit entries needed to run the demo workflow.</p>
             <h2>How We Use It</h2>
-            <p>Data is used to authenticate users, enforce role-based access, calculate achievement scores, show dashboards, and maintain an audit trail.</p>
+            <p>Data is used to calculate achievement scores, show dashboards, and maintain an audit trail.</p>
             <h2>Data Storage</h2>
-            <p>Demo data is stored in the configured application database. Passwords are handled by Firebase Authentication and are never stored in the AtomQuest database.</p>
+            <p>Demo data is stored in the configured application database. The workspace no longer collects or stores passwords.</p>
             <h2>User Rights</h2>
             <p>Users can request correction or deletion of demo data by contacting the project owner.</p>
             <h2>Contact</h2>
@@ -273,7 +273,7 @@ export function PolicyPageContent({ type }: { type: "privacy" | "terms" | "cooki
         ) : (
           <>
             <h2>Essential Cookies</h2>
-            <p>AtomQuest may use authentication cookies and local browser storage to keep users signed in and remember interface preferences.</p>
+            <p>AtomQuest may use local browser storage to remember interface preferences.</p>
             <h2>Analytics</h2>
             <p>No third-party analytics cookies are required for the demo experience.</p>
             <h2>Contact</h2>
