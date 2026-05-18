@@ -1,4 +1,4 @@
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { adminAuth, normalizeFirebaseRole } from "@/lib/firebase/admin";
 import { forbidden, unauthorized } from "./errors";
@@ -7,13 +7,6 @@ import type { PortalRole, PortalSession } from "@/lib/auth-types";
 export type ApiSession = PortalSession;
 
 async function resolveFirebaseIdentity() {
-  const headerStore = await headers();
-  const uid = headerStore.get("x-user-uid");
-  const role = normalizeFirebaseRole(headerStore.get("x-user-role"));
-  const email = headerStore.get("x-user-email") ?? "";
-
-  if (uid) return { uid, role, email };
-
   const cookieStore = await cookies();
   const sessionCookie = cookieStore.get("__session")?.value;
   if (!sessionCookie) throw unauthorized();
