@@ -1,14 +1,37 @@
 import { NextRequest, NextResponse } from "next/server";
-import { adminAuth, normalizeFirebaseRole } from "@/lib/firebase/admin";
+import { adminAuth, type AtomQuestRole } from "@/lib/firebase/admin";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 5;
+const ROLE_VALUES = new Set<AtomQuestRole>(["employee", "manager", "admin"]);
+
+function readFirebaseRole(value: unknown): AtomQuestRole | null {
+  return typeof value === "string" && ROLE_VALUES.has(value as AtomQuestRole)
+    ? value as AtomQuestRole
+    : null;
+}
+
+function cleanDisplayName(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, 255) : "";
+}
+
+function nameFromEmail(email: string) {
+  return email
+    .split("@")[0]
+    .replace(/[._-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .slice(0, 255);
+}
 
 export async function POST(request: NextRequest) {
   try {
-    const { idToken } = (await request.json()) as { idToken?: string };
+    const { idToken, name } = (await request.json()) as {
+      idToken?: string;
+      name?: string;
+    };
+
     if (!idToken) {
       return NextResponse.json(
         { success: false, error: "Missing idToken" },
@@ -17,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     const decoded = await adminAuth.verifyIdToken(idToken, true);
-    const role = normalizeFirebaseRole(decoded.role);
+    const role = readFirebaseRole(decoded.role);
     const email = decoded.email?.toLowerCase();
 
     if (!email) {
@@ -27,7 +50,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const profile = await prisma.user.findFirst({
+    let profile = await prisma.user.findFirst({
       where: {
         OR: [{ firebaseUid: decoded.uid }, { email }],
         isActive: true,
@@ -36,19 +59,31 @@ export async function POST(request: NextRequest) {
     });
 
     if (!profile) {
-      return NextResponse.json(
-        { success: false, error: "No AtomQuest profile exists for this user" },
-        { status: 403 }
-      );
+      const displayName =
+        cleanDisplayName(name) ||
+        cleanDisplayName(decoded.name) ||
+        nameFromEmail(email);
+
+      profile = await prisma.user.create({
+        data: {
+          email,
+          name: displayName,
+          firebaseUid: decoded.uid,
+          role: role ?? "employee",
+          avatarUrl: cleanDisplayName(decoded.picture) || undefined,
+        },
+        select: { id: true, firebaseUid: true, role: true },
+      });
     }
 
-    if (!profile.firebaseUid || profile.role !== role) {
+    const profileUpdate: { firebaseUid?: string; role?: AtomQuestRole } = {};
+    if (!profile.firebaseUid) profileUpdate.firebaseUid = decoded.uid;
+    if (role && profile.role !== role) profileUpdate.role = role;
+
+    if (Object.keys(profileUpdate).length > 0) {
       await prisma.user.update({
         where: { id: profile.id },
-        data: {
-          firebaseUid: profile.firebaseUid ?? decoded.uid,
-          role,
-        },
+        data: profileUpdate,
       });
     }
 

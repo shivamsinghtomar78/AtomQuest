@@ -613,7 +613,7 @@ export function LandingPage() {
 
         <div className="nav-actions">
           <Link className="signin-link" href="/login">Sign In</Link>
-          <Link className="nav-cta" href="/login">Get Started</Link>
+          <Link className="nav-cta" href="/signup">Get Started</Link>
           <button
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             className={`menu-button ${menuOpen ? "is-open" : ""}`}
@@ -834,7 +834,7 @@ export function LandingPage() {
           <h2>Ready to align your team&apos;s goals?</h2>
           <p>Set up your first goal cycle in under 5 minutes.</p>
           <div>
-            <Link className="hero-primary" href="/login">Get started free</Link>
+            <Link className="hero-primary" href="/signup">Get started free</Link>
             <button className="hero-secondary" onClick={() => setContactOpen(true)} type="button">Request a demo</button>
           </div>
         </div>

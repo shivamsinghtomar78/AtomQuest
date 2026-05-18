@@ -20,9 +20,22 @@ test.describe("public smoke", () => {
   test("login keeps demo-role access ergonomic", async ({ page }) => {
     await page.goto(`${baseURL}/login`);
     await expect(page.getByRole("heading", { name: "Sign in to your workspace" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Create account" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Employee" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Manager" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Admin" })).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test("signup offers email and Google account creation", async ({ page }) => {
+    await page.goto(`${baseURL}/signup`);
+    await expect(page.getByRole("heading", { name: "Create your AtomQuest account" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
+    await expect(page.getByLabel("Full name")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create Account" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Employee" })).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
   });
 
